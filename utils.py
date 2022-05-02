@@ -9,6 +9,7 @@ import numpy as np
 import yfinance as yf
 
 
+
 def download_stonk_prices(stonk_list, period_years, date_from=None, date_to=None, interval='1d', source='yfinance', data_dir='data', proxy=False):    
     '''Returns historical price data for the selected stonks.
 
@@ -119,7 +120,7 @@ def get_stonk_data_by_industry(date_from, date_to, market_cap_min_mm=1000, marke
     return all_stonks[all_stonks.index.isin(selected_tickers.index)]
 
     
-def ingest_trade_data(data_dir='data/trades'):
+def ingest_trade_pipeline_outputs(data_dir='data/trades'):
     data_list = []
     for file in os.listdir(data_dir):
             if file.endswith('csv'):

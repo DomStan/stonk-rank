@@ -12,7 +12,7 @@ from processing import DAYS_IN_TRADING_WEEK
 
 
 
-def data_collection_rolling_pipeline(stonk_prices, industries, l_reg, l_roll, dt, market_cap_min_mm=1000, adf_pval_cutoff=0.1, adf_pass_rate_filter=0.5, trade_length_months=3, trading_interval_weeks=4, data_dir='data'):
+def data_collection_rolling_pipeline(stonk_prices, industries, l_reg, l_roll, dt, market_cap_min_mm=1000, market_cap_max_mm=None, adf_pval_cutoff=0.1, adf_pass_rate_filter=0.5, trade_length_months=3, trading_interval_weeks=4, data_dir='data'):
     # Adjust days so that they are divisible by dt
     l_reg_days = int(DAYS_IN_TRADING_YEAR * l_reg)
     l_reg_days-= l_reg_days % dt
@@ -25,7 +25,7 @@ def data_collection_rolling_pipeline(stonk_prices, industries, l_reg, l_roll, dt
     total_backtest_days = total_days + trade_length_days
     
     # Get tickers from selected industries
-    tickers = utils.get_tickers_by_industry(market_cap_min_mm, industries, data_dir=data_dir)
+    tickers = utils.get_tickers_by_industry(market_cap_min_mm, market_cap_max_mm, industries, data_dir=data_dir)
     
     data_range = range(stonk_prices.shape[1], total_backtest_days, -trading_interval_days)
     
@@ -74,7 +74,7 @@ def data_collection_rolling_pipeline(stonk_prices, industries, l_reg, l_roll, dt
         data_all_industries.to_csv(data_output_path, header=True, index=False)
         
         total_data_windows-= 1
-        print('Remaining data windows: ' + total_data_windows)
+        print('Remaining data windows: ' + str(total_data_windows))
         
         
 def _data_collection_step(X, Y, l_reg, l_roll, dt, adf_pval_cutoff, adf_pass_rate_filter, trade_length_months):
