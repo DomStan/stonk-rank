@@ -232,3 +232,15 @@ def preprocess_stock_list(write_csv=True, raw_data_path='data/raw_stonk_list.xls
         df.to_csv(path_or_buf=output_path, header=True, index=False)
     
     return df
+
+def build_dataset_from_live_data_by_industry(std_residuals, adfs, industry, mean_max_residual):
+    output_length = len(std_residuals)
+    dataset = {}
+    dataset['adf_pass_rate'] = adfs[0].values.round(3)
+    dataset['last_residual'] = std_residuals.iloc[:, -1].values.round(3)
+    dataset['residual_mean_max'] = np.full(output_length, mean_max_residual)
+    dataset['subindustry'] = np.full(output_length, industry)
+        
+    # All columns must have equal length
+    assert len(set([len(x) for x in dataset.values()])) == 1
+    return pd.DataFrame(dataset)

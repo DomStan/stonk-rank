@@ -129,6 +129,7 @@ def _data_collection_step(X, Y, l_reg, l_roll, dt, adf_pval_cutoff, adf_pass_rat
 
     # Select trades that are above the specified ADF pass rate
     selected_by_adf = (adfs >= adf_pass_rate_filter).values
+    adfs = adfs[selected_by_adf]
 
     std_residuals = std_residuals[selected_by_adf]
     
@@ -158,7 +159,7 @@ def _data_collection_step(X, Y, l_reg, l_roll, dt, adf_pval_cutoff, adf_pass_rat
     output['ticker_y'] = Y_from_T.index
     output['trade_date'] = np.full(output_length, X_from_T.columns[0])
     
-    output['adf_pass_rate'] = adfs[selected_by_adf][0].values.round(2)
+    output['adf_pass_rate'] = adfs[0].values.round(2)
     output['last_residual'] = std_residuals.iloc[:, -1].values.round(2)
     output['beta'] = betas[0].values.round(2)
     output['intercept'] = intercepts[0].values.round(2)
