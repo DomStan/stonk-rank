@@ -9,25 +9,32 @@ import os
 import preprocessing
 
 
-class StonkModelInterface():
+class StonkModelInterface:
     _model = None
     _scalers = None
-    
-    def predict(self, X):
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
         pass
 
+
 class XGBStonkModel(StonkModelInterface):
-    def __init__(self, model_dir='data', model_file='xgb_classifier.json', scalers_file='scalers.json'):
+    def __init__(
+        self,
+        model_dir="data",
+        model_file="xgb_classifier.json",
+        scalers_file="scalers.json",
+    ):
         self._model_dir = model_dir
         self._model_file = model_file
         self._scalers_file = scalers_file
-        
+
         self._model = xgb.XGBClassifier()
         self._model.load_model(os.path.join(self._model_dir, self._model_file))
-        with open(os.path.join(self._model_dir, self._scalers_file), 'rb') as fp:
+        with open(os.path.join(self._model_dir, self._scalers_file), "rb") as fp:
             self._scalers = pickle.load(fp)
 
-    def predict(self, X):
-        X_transformed, _ = preprocessing.transform_features(X, scalers=self._scalers, add_noise=False)
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        X_transformed, _ = preprocessing.transform_features(
+            X, scalers=self._scalers, add_noise=False
+        )
         return self._model.predict_proba(X_transformed)[:, 1]
-
