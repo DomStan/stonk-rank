@@ -30,7 +30,7 @@ def data_collection_rolling_pipeline(
     trade_length_months: Optional[int] = 3,
     trading_interval_weeks: Optional[int] = 4,
     data_dir: Optional[str] = "data",
-) -> NoReturn:
+) -> None:
 
     # Adjust days so that they are divisible by dt
     l_reg_days = int(DAYS_IN_TRADING_YEAR * l_reg)
