@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+from typing import Tuple
+
 import xgboost as xgb
 
 import pickle
@@ -33,8 +35,8 @@ class XGBStonkModel(StonkModelInterface):
         with open(os.path.join(self._model_dir, self._scalers_file), "rb") as fp:
             self._scalers = pickle.load(fp)
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
         X_transformed, _ = preprocessing.transform_features(
             X, scalers=self._scalers, add_noise=False
         )
-        return self._model.predict_proba(X_transformed)[:, 1]
+        return self._model.predict_proba(X_transformed)[:, 1], X_transformed
