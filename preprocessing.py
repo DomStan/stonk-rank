@@ -85,12 +85,11 @@ def split_data_mixed(
     df: pd.DataFrame,
     hold_out_time_slices: int,
     sample_proportion: float,
-    seed: Optional[int] = 420,
 ) -> Dict[str, pd.DataFrame]:
     df_copy = df.copy()
 
     # Shuffle data
-    df_copy = df_copy.sample(frac=1, random_state=seed).reset_index(drop=True)
+    df_copy = df_copy.sample(frac=1).reset_index(drop=True)
 
     dates_sorted = np.sort(df["trade_date"].unique())
 
@@ -103,12 +102,12 @@ def split_data_mixed(
     df_oos = (
         df_copy[df_copy.trade_date.isin(dates_oos)]
         .copy()
-        .sample(frac=1, random_state=seed)
+        .sample(frac=1)
     )
     df_train = (
         df_copy[df_copy.trade_date.isin(dates_train)]
         .copy()
-        .sample(frac=1, random_state=seed)
+        .sample(frac=1)
     )
 
     sample_examples = int(len(df_train) * sample_proportion)
@@ -116,7 +115,7 @@ def split_data_mixed(
     df_sample = df_train.iloc[:sample_examples]
     df_train = df_train.iloc[sample_examples:]
 
-    df_validation = pd.concat([df_oos, df_sample]).sample(frac=1, random_state=seed)
+    df_validation = pd.concat([df_oos, df_sample]).sample(frac=1)
 
     # No intersection
     assert len(set(df_oos.trade_date.unique()) & set(df_train.trade_date.unique())) == 0
