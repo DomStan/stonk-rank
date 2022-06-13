@@ -11,27 +11,6 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
 
-def split_data(
-    df: pd.DataFrame,
-    validation_size: Optional[float] = 0.1,
-    test_size: Optional[float] = 0.1,
-    seed: Optional[int] = 420,
-) -> Dict[str, pd.DataFrame]:
-    df_copy = df.copy()
-
-    # Shuffle data
-    df_copy = df_copy.sample(frac=1, random_state=seed).reset_index(drop=True)
-
-    n_validation = int(len(df_copy) * validation_size)
-    n_test = int(len(df_copy) * test_size)
-
-    df_validation = df_copy.iloc[:n_validation].copy()
-    df_test = df_copy.iloc[n_validation : n_validation + n_test].copy()
-    df_train = df_copy.iloc[n_validation + n_test :].copy()
-
-    return {"train": df_train, "validation": df_validation, "test": df_test}
-
-
 def split_data_by_time(
     df: pd.DataFrame, hold_out_time_slices: int, seed: Optional[int] = 420
 ) -> Dict[str, pd.DataFrame]:
@@ -81,50 +60,53 @@ def split_data_by_time(
     return {"train": df_train, "validation": df_validation, "test": df_test}
 
 
-def split_data_mixed(
+def split_data(
     df: pd.DataFrame,
-    hold_out_time_slices: int,
-    sample_proportion: float,
+    date_count_valid: int,
+    date_count_gap: int,
+    date_remove_train: int = 0,
+    random_state: int = None
 ) -> Dict[str, pd.DataFrame]:
     df_copy = df.copy()
 
     # Shuffle data
-    df_copy = df_copy.sample(frac=1).reset_index(drop=True)
+    df_copy = df_copy.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
     dates_sorted = np.sort(df["trade_date"].unique())
+    
+    total_date_count = len(dates_sorted)
+    
+    date_count_train = total_date_count - date_count_valid - date_count_gap
 
-    dates_oos = dates_sorted[-hold_out_time_slices:]
-    dates_train = dates_sorted[:-hold_out_time_slices]
+    assert date_count_train > 0 and sum([date_count_train, date_count_valid, date_count_gap]) <= total_date_count
+
+    dates_valid = dates_sorted[date_count_train+date_count_gap : date_count_train+date_count_gap+date_count_valid]
+    dates_train = dates_sorted[date_remove_train:date_count_train]
+    
+    assert len(dates_valid) == date_count_valid and len(dates_train) == date_count_train - date_remove_train
+    assert all([x > dates_train[-1] for x in dates_valid])
+    assert all([x < dates_valid[0] for x in dates_train])
 
     # Sliced dates should not overlap
-    assert len(set(dates_oos) & set(dates_train)) == 0
+    assert len(set(dates_valid) & set(dates_train)) == 0
 
-    df_oos = (
-        df_copy[df_copy.trade_date.isin(dates_oos)]
+    df_valid = (
+        df_copy[df_copy.trade_date.isin(dates_valid)]
         .copy()
-        .sample(frac=1)
+        .sample(frac=1, random_state=random_state)
     )
     df_train = (
         df_copy[df_copy.trade_date.isin(dates_train)]
         .copy()
-        .sample(frac=1)
+        .sample(frac=1, random_state=random_state)
     )
 
-    sample_examples = int(len(df_train) * sample_proportion)
-
-    df_sample = df_train.iloc[:sample_examples]
-    df_train = df_train.iloc[sample_examples:]
-
-    df_validation = pd.concat([df_oos, df_sample]).sample(frac=1)
-
     # No intersection
-    assert len(set(df_oos.trade_date.unique()) & set(df_train.trade_date.unique())) == 0
+    assert len(set(df_valid.trade_date.unique()) & set(df_train.trade_date.unique())) == 0
 
-    assert len(df) == sum([len(df_train), len(df_validation)])
+    assert not np.any(df_valid.index.isin(df_train.index))
 
-    assert not np.any(df_validation.index.isin(df_train.index))
-
-    return {"train": df_train, "validation": df_validation}
+    return {"train": df_train, "validation": df_valid}
 
 
 def assign_labels(df: pd.DataFrame) -> pd.DataFrame:
