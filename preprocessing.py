@@ -219,9 +219,9 @@ def transform_features(
     )
 
     if add_noise:
-        df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, 0.025, n_x)
-        df_copy.loc[:, "last_residual"] += np.random.normal(0, 0.025, n_x)
-        df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, 0.025, n_x)
+        df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, 0.01, n_x)
+        df_copy.loc[:, "last_residual"] += np.random.normal(0, 0.01, n_x)
+        df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, 0.01, n_x)
 
     # Scale features
     if scalers is not None:
