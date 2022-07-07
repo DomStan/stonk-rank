@@ -10,56 +10,6 @@ import sklearn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
-
-def split_data_by_time(
-    df: pd.DataFrame, hold_out_time_slices: int, seed: Optional[int] = 420
-) -> Dict[str, pd.DataFrame]:
-    df_copy = df.copy()
-    t_test = hold_out_time_slices // 2
-
-    # Shuffle data
-    df_copy = df_copy.sample(frac=1, random_state=seed).reset_index(drop=True)
-
-    dates_sorted = np.sort(df["trade_date"].unique())
-
-    dates_valid = dates_sorted[-hold_out_time_slices:-t_test]
-    dates_test = dates_sorted[-t_test:]
-    dates_train = dates_sorted[:-hold_out_time_slices]
-
-    # Sliced dates should not overlap
-    assert len(set(dates_valid) & set(dates_test) & set(dates_train)) == 0
-
-    df_validation = (
-        df_copy[df_copy.trade_date.isin(dates_valid)]
-        .copy()
-        .sample(frac=1, random_state=seed)
-    )
-    df_test = (
-        df_copy[df_copy.trade_date.isin(dates_test)]
-        .copy()
-        .sample(frac=1, random_state=seed)
-    )
-    df_train = (
-        df_copy[df_copy.trade_date.isin(dates_train)]
-        .copy()
-        .sample(frac=1, random_state=seed)
-    )
-
-    # No intersection
-    assert (
-        len(
-            set(df_validation.trade_date.unique())
-            & set(df_test.trade_date.unique())
-            & set(df_train.trade_date.unique())
-        )
-        == 0
-    )
-
-    assert len(df) == sum([len(df_train), len(df_validation), len(df_test)])
-
-    return {"train": df_train, "validation": df_validation, "test": df_test}
-
-
 def split_data(
     df: pd.DataFrame,
     date_count_valid: int,
@@ -134,10 +84,9 @@ def assign_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def transform_features(
-    df: pd.DataFrame,
+    X: pd.DataFrame,
     scalers: Optional[Dict[str, sklearn.base.TransformerMixin]] = None,
-    scaling: Optional[str] = None,
-    add_noise: Optional[bool] = False,
+    noise_level: Optional[float] = 0,
 ) -> Tuple[
     pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],
 ]:
@@ -179,13 +128,7 @@ def transform_features(
         }
         return mappings[example["subindustry"]]
 
-    if scalers is None and scaling is not None:
-        FIT_SCALERS = True
-        scalers = {}
-    else:
-        FIT_SCALERS = False
-
-    def _get_new_scaler():
+    def _get_new_scaler(scaling):
         if scaling == "minmax":
             return MinMaxScaler()
         elif scaling == "standard":
@@ -195,14 +138,15 @@ def transform_features(
         "adf_pass_rate": np.float32,
         "last_residual": np.float32,
         "residual_mean_max": np.float32,
+        "vix": np.float32,
     }
 
-    df_copy = df.copy()
+    df_copy = X.copy()
     n_x = df_copy.shape[0]
 
     # Select features
     df_copy = df_copy[
-        ["adf_pass_rate", "last_residual", "residual_mean_max", "subindustry"]
+        ["adf_pass_rate", "last_residual", "residual_mean_max", "subindustry", "vix"]
     ].astype(data_types)
 
     # Industry transform
@@ -213,45 +157,37 @@ def transform_features(
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
 
-    # Feature crossing
+    # Feature cross
     df_copy.loc[:, "residual_inter"] = (
         df_copy["last_residual"] / df_copy["residual_mean_max"]
     )
 
-    if add_noise:
-        df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, 0.01, n_x)
-        df_copy.loc[:, "last_residual"] += np.random.normal(0, 0.01, n_x)
-        df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, 0.01, n_x)
+    if noise_level > 0:
+        df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, noise_level, n_x)
+        df_copy.loc[:, "last_residual"] += np.random.normal(0, noise_level, n_x)
+        df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, noise_level, n_x)
+        df_copy.loc[:, "vix"] += np.random.normal(0, noise_level, n_x)
 
     # Scale features
-    if scalers is not None:
-        # Last residual scaling
-        if FIT_SCALERS:
-            scalers["last_residual"] = _get_new_scaler().fit(
-                df_copy["last_residual"].to_numpy().reshape(-1, 1)
-            )
-            scalers["adf_pass_rate"] = _get_new_scaler().fit(
-                df_copy["adf_pass_rate"].to_numpy().reshape(-1, 1)
-            )
-            scalers["residual_mean_max"] = _get_new_scaler().fit(
-                df_copy["residual_mean_max"].to_numpy().reshape(-1, 1)
-            )
-
-        scaler = scalers["last_residual"]
-        df_copy.loc[:, "last_residual"] = scaler.transform(
-            df_copy["last_residual"].to_numpy().reshape(-1, 1)
-        )
-
-        # ADF pass rate scaling
-        scaler = scalers["adf_pass_rate"]
-        df_copy.loc[:, "adf_pass_rate"] = scaler.transform(
+    if scalers is None:
+        scalers = dict()
+        scalers["adf_pass_rate"] = _get_new_scaler("minmax").fit(
             df_copy["adf_pass_rate"].to_numpy().reshape(-1, 1)
         )
-
-        # Residual mean max scaling
-        scaler = scalers["residual_mean_max"]
-        df_copy.loc[:, "residual_mean_max"] = scaler.transform(
-            df_copy["residual_mean_max"].to_numpy().reshape(-1, 1)
+        scalers["vix"] = _get_new_scaler("standard").fit(
+            df_copy["vix"].to_numpy().reshape(-1, 1)
         )
+
+    # ADF pass rate scaling
+    scaler = scalers["adf_pass_rate"]
+    df_copy.loc[:, "adf_pass_rate"] = scaler.transform(
+        df_copy["adf_pass_rate"].to_numpy().reshape(-1, 1)
+    )
+        
+    # Vix index scaling
+    scaler = scalers["vix"]
+    df_copy.loc[:, "vix"] = scaler.transform(
+        df_copy["vix"].to_numpy().reshape(-1, 1)
+    )
 
     return df_copy, scalers

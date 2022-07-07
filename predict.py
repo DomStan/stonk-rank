@@ -34,9 +34,12 @@ class XGBStonkModel(StonkModelInterface):
         self._model.load_model(os.path.join(self._model_dir, self._model_file))
         with open(os.path.join(self._model_dir, self._scalers_file), "rb") as fp:
             self._scalers = pickle.load(fp)
+            assert self._scalers is not None
 
     def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
-        X_transformed, _ = preprocessing.transform_features(
-            X, scalers=self._scalers, add_noise=False
+        X_transformed, scalers_returned = preprocessing.transform_features(
+            X=X, scalers=self._scalers, noise_level=0
         )
+        assert scalers_returned is self._scalers
+        
         return self._model.predict_proba(X_transformed)[:, 1], X_transformed

@@ -22,6 +22,7 @@ def download_stonk_prices(
     interval: str = "1d",
     source: str = "yfinance",
     data_dir: str = "data",
+    fname_prefix: str = "stonks"
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Downloads historical price data for given tickers from a given source.
 
@@ -46,7 +47,7 @@ def download_stonk_prices(
     )
 
     if source.lower() == "yfinance":
-        stonks = yf.download(
+        stonks = pd.DataFrame(yf.download(
             list(tickers),
             start=date_from,
             end=date_to,
@@ -54,12 +55,15 @@ def download_stonk_prices(
             group_by="column",
             threads=True,
             rounding=True,
-        )["Adj Close"]
+        )["Adj Close"])
         stonks.dropna(axis=0, how="all", inplace=True)
-        stonks.sort_values(by="Date", inplace=True)
 
         stonks.index = pd.to_datetime(stonks.index).date
         stonks.index.name = "date"
+        stonks.sort_index(axis=0, inplace=True)
+        
+        if len(stonks.columns) == 1:
+            stonks.columns = tickers
 
         clean_stonks = stonks.dropna(
             axis=1, how="all", thresh=int(len(stonks.index) * 0.99)
@@ -82,11 +86,8 @@ def download_stonk_prices(
         raise ValueError("Unsupported data source")
 
     def _stonks_to_csv(df, is_cleaned):
-        from_date_string = df.index[0]
-        to_date_string = df.index[-1]
-
-        filename = "stonks_{from_date}_to_{to_date}.csv".format(
-            from_date=from_date_string, to_date=to_date_string
+        filename = "{prefix}.csv".format(
+            prefix=fname_prefix
         )
 
         if is_cleaned:
@@ -135,13 +136,15 @@ def get_ticker_names(
 
 
 def _read_stonk_data(
-    date_from: str, date_to: str, clean: bool = True, data_dir: str = None
+    fname_prefix: str = None, clean: bool = True, data_dir: str = None
 ) -> pd.DataFrame:
     data_dir = "data" if data_dir is None else data_dir
-    data_prefix = "clean_stonks" if clean else "stonks"
+    
+    fname_prefix = "stonks" if fname_prefix is None else fname_prefix
+    fname_prefix = "clean_" + fname_prefix if clean else fname_prefix
 
     path = os.path.join(
-        data_dir, "{}_{}_to_{}.csv".format(data_prefix, date_from, date_to)
+        data_dir, "{}.csv".format(fname_prefix)
     )
     stonks = pd.read_csv(path, header=0, index_col=0).astype(np.float32)
 
@@ -152,14 +155,13 @@ def _read_stonk_data(
 
 
 def get_stonk_data(
-    date_from: str,
-    date_to: str,
     market_cap_min_mm: float = 1000,
     market_cap_max_mm: float = None,
     clean: bool = True,
     filter_industries: Iterable[str] = None,
-    ticker_list_filename: str = None,
+    fname_prefix: str = None,
     data_dir: str = None,
+    disable_filter: bool = False
 ) -> pd.DataFrame:
     """Read the CSV file containing all stonk price data and return the tickers from the selected subindustries.
     
@@ -169,13 +171,14 @@ def get_stonk_data(
     Returns:
         stonks - list of selected tickers' price data
     """
-    all_stonks = _read_stonk_data(date_from, date_to, data_dir=data_dir, clean=clean,)
+    all_stonks = _read_stonk_data(data_dir=data_dir, clean=clean, fname_prefix=fname_prefix)
+    if disable_filter:
+        return all_stonks
     selected_tickers = get_ticker_names(
         market_cap_min_mm=market_cap_min_mm,
         market_cap_max_mm=market_cap_max_mm,
         filter_industries=filter_industries,
-        data_dir=data_dir,
-        filename=ticker_list_filename,
+        data_dir=data_dir
     )
     return all_stonks[all_stonks.index.isin(selected_tickers.index)]
 
@@ -310,6 +313,7 @@ def build_dataset_from_live_data_by_industry(
     adfs: np.ndarray,
     subindustry: str,
     mean_max_residual: float,
+    vix_index: float,
 ) -> pd.DataFrame:
     """Builds an inference-ready (before pre-processing) dataset with predefined feature names from incoming live data for one subindustry.
     
@@ -329,6 +333,7 @@ def build_dataset_from_live_data_by_industry(
     dataset["last_residual"] = std_residuals[:, -1].round(3)
     dataset["residual_mean_max"] = np.full(output_length, mean_max_residual)
     dataset["subindustry"] = np.full(output_length, subindustry)
+    dataset["vix"] = np.full(output_length, vix_index)
 
     # All columns must have equal length
     assert len(set([len(x) for x in dataset.values()])) == 1

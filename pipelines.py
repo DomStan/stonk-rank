@@ -23,6 +23,7 @@ def data_collection_rolling_pipeline(
     l_reg: int,
     l_roll: int,
     dt: int,
+    first_n_windows: int = None,
     market_cap_min_mm: Optional[int] = 1000,
     market_cap_max_mm: Optional[int] = None,
     adf_pval_cutoff: Optional[float] = 0.1,
@@ -44,8 +45,8 @@ def data_collection_rolling_pipeline(
     total_backtest_days = total_days + trade_length_days
 
     # Get tickers from selected industries
-    tickers = utils.get_tickers_by_industry(
-        market_cap_min_mm, market_cap_max_mm, industries, data_dir=data_dir
+    tickers = utils.get_ticker_names(
+        market_cap_min_mm, market_cap_max_mm, filter_industries=industries, data_dir=data_dir
     )
 
     data_range = range(
@@ -54,6 +55,9 @@ def data_collection_rolling_pipeline(
 
     total_data_windows = len(list(data_range))
     total_industries = len(industries)
+    
+    if first_n_windows is not None:
+        total_data_windows = first_n_windows
 
     print("Total data windows: " + str(total_data_windows))
 
@@ -113,6 +117,7 @@ def data_collection_rolling_pipeline(
                     str(l_roll),
                     str(dt),
                     str(market_cap_min_mm),
+                    str(market_cap_max_mm),
                     str(adf_pval_cutoff),
                     str(adf_pass_rate_filter),
                 ]
@@ -126,6 +131,10 @@ def data_collection_rolling_pipeline(
 
         total_data_windows -= 1
         print("Remaining data windows: " + str(total_data_windows))
+        
+        if total_data_windows == 0:
+            print("All done")
+            break
 
 
 def _data_collection_step(
@@ -174,7 +183,7 @@ def _data_collection_step(
     del X
     del Y
 
-    residuals, betas, intercepts = processing.get_rolling_residuals(
+    residuals, betas, intercepts, _ = processing.get_rolling_residuals(
         X=X_until_T, Y=Y_until_T, l_reg=l_reg, l_roll=l_roll, dt=dt
     )
     del X_until_T
