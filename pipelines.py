@@ -19,17 +19,18 @@ from processing import DAYS_IN_TRADING_WEEK
 
 def data_collection_rolling_pipeline(
     stonk_prices: pd.DataFrame,
-    industries: Iterable[str],
     l_reg: int,
     l_roll: int,
     dt: int,
-    first_n_windows: int = None,
-    market_cap_min_mm: Optional[int] = 1000,
-    market_cap_max_mm: Optional[int] = None,
-    adf_pval_cutoff: Optional[float] = 0.1,
-    adf_pass_rate_filter: Optional[float] = 0.5,
-    trade_length_months: Optional[int] = 3,
-    trading_interval_weeks: Optional[int] = 4,
+    market_cap_min_mm: int,
+    market_cap_max_mm: int,
+    last_residual_cutoff: float,
+    mean_max_residual_dt: int,
+    adf_pval_cutoff: float,
+    adf_pass_rate_filter: float,
+    trade_length_months: int,
+    trading_interval_weeks: int,
+    first_n_windows: Optional[int] = None,
     data_dir: Optional[str] = "data",
 ) -> None:
 
@@ -44,10 +45,10 @@ def data_collection_rolling_pipeline(
     trading_interval_days = DAYS_IN_TRADING_WEEK * trading_interval_weeks
     total_backtest_days = total_days + trade_length_days
 
-    # Get tickers from selected industries
     tickers = utils.get_ticker_names(
-        market_cap_min_mm, market_cap_max_mm, filter_industries=industries, data_dir=data_dir
+        market_cap_min_mm, market_cap_max_mm, data_dir=data_dir
     )
+    industries = list(ticker_list['subindustry'].unique())
 
     data_range = range(
         stonk_prices.shape[1], total_backtest_days, -trading_interval_days
@@ -57,7 +58,7 @@ def data_collection_rolling_pipeline(
     total_industries = len(industries)
     
     if first_n_windows is not None:
-        total_data_windows = first_n_windows
+        total_data_windows = min(first_n_windows, total_data_windows)
 
     print("Total data windows: " + str(total_data_windows))
 
@@ -83,14 +84,16 @@ def data_collection_rolling_pipeline(
 
             data = pd.DataFrame(
                 _data_collection_step(
-                    X,
-                    Y,
-                    l_reg,
-                    l_roll,
-                    dt,
-                    adf_pval_cutoff,
-                    adf_pass_rate_filter,
-                    trade_length_months,
+                    X=X,
+                    Y=Y,
+                    l_reg=l_reg,
+                    l_roll=l_roll,
+                    dt=dt,
+                    last_residual_cutoff=last_residual_cutoff,
+                    mean_max_residual_dt=mean_max_residual_dt,
+                    adf_pval_cutoff=adf_pval_cutoff,
+                    adf_pass_rate_filter=adf_pass_rate_filter,
+                    trade_length_months=trade_length_months,
                 )
             )
 
@@ -118,8 +121,12 @@ def data_collection_rolling_pipeline(
                     str(dt),
                     str(market_cap_min_mm),
                     str(market_cap_max_mm),
+                    str(last_residual_cutoff),
+                    str(mean_max_residual_dt),
                     str(adf_pval_cutoff),
                     str(adf_pass_rate_filter),
+                    str(trade_length_months),
+                    str(trading_interval_weeks),
                 ]
             )
             + ".csv"
@@ -134,7 +141,7 @@ def data_collection_rolling_pipeline(
         
         if total_data_windows == 0:
             print("All done")
-            break
+            return
 
 
 def _data_collection_step(
@@ -143,6 +150,8 @@ def _data_collection_step(
     l_reg: int,
     l_roll: int,
     dt: int,
+    last_residual_cutoff: float,
+    mean_max_residual_dt: int,
     adf_pval_cutoff: float,
     adf_pass_rate_filter: float,
     trade_length_months: int,
@@ -192,7 +201,7 @@ def _data_collection_step(
     std_residuals, means, stds = processing.get_standardized_residuals(residuals)
 
     # Filter residuals to only select relevant trades that fit the theoretical assumptions
-    std_residuals = std_residuals[std_residuals.iloc[:, -1].abs() >= 2]
+    std_residuals = std_residuals[std_residuals.iloc[:, -1].abs() >= last_residual_cutoff]
 
     if len(std_residuals) == 0:
         return {}
@@ -225,7 +234,7 @@ def _data_collection_step(
         return {}
 
     residuals_max_mean = processing.get_mean_residual_magnitude(
-        std_residuals.to_numpy(), dt=21
+        std_residuals.to_numpy(), dt=mean_max_residual_dt
     )
 
     betas = betas.loc[std_residuals.index]
