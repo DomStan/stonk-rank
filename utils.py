@@ -124,14 +124,14 @@ def get_ticker_names(
         market_cap_max_mm = np.iinfo(np.int32).max
 
     path_to_csv = os.path.join(data_dir, filename)
-    tickers = pd.read_csv(path_to_csv)
+    tickers = pd.read_csv(path_to_csv).set_index("ticker")
     tickers = tickers[
         tickers["market_cap"].between(market_cap_min_mm, market_cap_max_mm)
     ]
     return (
-        tickers.set_index("ticker")
+        tickers
         if not filter_industries
-        else tickers[tickers["subindustry"].isin(filter_industries)].set_index("ticker")
+        else tickers[tickers["subindustry"].isin(filter_industries)]
     )
 
 

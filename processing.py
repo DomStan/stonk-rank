@@ -171,13 +171,13 @@ def get_rolling_residuals(
     assert len(pair_index) == len(date_index)
 
     # Calculate and return the residuals
-    res, betas, intercepts = get_residuals_many(X_windows, Y_windows)
+    residuals, betas, intercepts = get_residuals_many(X_windows, Y_windows)
 
-    res = pd.DataFrame(res, index=pair_index)
+    residuals = pd.DataFrame(residuals, index=pair_index)
     betas = pd.DataFrame(betas, index=pair_index)
     intercepts = pd.DataFrame(intercepts, index=pair_index)
 
-    return res, betas, intercepts, date_index
+    return residuals, betas, intercepts, date_index
 
 
 def get_adfs(residuals: np.ndarray, adf_regression: str) -> np.ndarray:
