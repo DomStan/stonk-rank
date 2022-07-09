@@ -172,16 +172,10 @@ def get_rolling_residuals(
 
     # Calculate and return the residuals
     residuals, betas, intercepts = get_residuals_many(X_windows, Y_windows)
-    
-    positive_betas = betas > 0
 
     residuals = pd.DataFrame(residuals, index=pair_index)
     betas = pd.DataFrame(betas, index=pair_index)
     intercepts = pd.DataFrame(intercepts, index=pair_index)
-    
-    betas = betas[positive_betas]
-    residuals = residuals[positive_betas]
-    intercepts = intercepts[positive_betas]
 
     return residuals, betas, intercepts, date_index
 
