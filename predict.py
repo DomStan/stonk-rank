@@ -15,7 +15,7 @@ class StonkModelInterface:
     _model = None
     _scalers = None
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
         pass
 
 
