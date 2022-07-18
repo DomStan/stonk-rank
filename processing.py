@@ -2,8 +2,13 @@ import numpy as np
 import pandas as pd
 from itertools import combinations
 from statsmodels.tsa.stattools import adfuller
+from sklearn.linear_model import LinearRegression
+from pmdarima.arima import auto_arima
 
+from numpy.typing import ArrayLike
 from typing import Tuple
+
+import utils
 
 DAYS_IN_TRADING_YEAR = 252
 DAYS_IN_TRADING_MONTH = 21
@@ -43,7 +48,8 @@ def get_residuals_many(
 
     # Add bias/intercept in the form (Xi, 1)
     Z = np.concatenate(
-        [X, np.ones((np.shape(X)[0], np.shape(X)[1], 1), dtype=np.float32)], axis=2,
+        [X, np.ones((np.shape(X)[0], np.shape(X)[1], 1), dtype=np.float32)],
+        axis=2,
     )
     del X
 
@@ -69,7 +75,7 @@ def get_residuals_many(
 
 def get_rolling_residuals(
     X: pd.DataFrame, Y: pd.DataFrame, l_reg: int, l_roll: int, dt: int
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Calculates rolling window residuals in vectorized form. Returns the result as an array that repeats each ticker for the number of regressions calculated.
     For example, if the inputs are (Pair A, Pair B, Pair C) and l_roll / dt = 3, then the returned results will have the form as follows:
     (Pair A, Pair A, Pair A, Pair B, Pair B, Pair B, Pair C, Pair C, Pair C)
@@ -176,18 +182,9 @@ def get_rolling_residuals(
     residuals = pd.DataFrame(residuals, index=pair_index)
     betas = pd.DataFrame(betas, index=pair_index)
     intercepts = pd.DataFrame(intercepts, index=pair_index)
+    date_index = pd.DataFrame(date_index, index=pair_index)
 
     return residuals, betas, intercepts, date_index
-
-
-def get_adfs(residuals: np.ndarray, adf_regression: str) -> np.ndarray:
-    # Get ADF test p-values for each row of the residuals array. No autolag (maxlag always used)
-    assert residuals.dtype == np.float32
-    return np.apply_along_axis(
-        lambda x: adfuller(x, regression=adf_regression, autolag=None)[1],
-        axis=1,
-        arr=residuals,
-    )
 
 
 def get_aggregate_adfs(
@@ -196,11 +193,20 @@ def get_aggregate_adfs(
     cutoff: float = 0.1,
     adf_regression: str = "c",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _get_adfs(residuals: np.ndarray, adf_regression: str) -> np.ndarray:
+        # Get ADF test p-values for each row of the residuals array. No autolag (maxlag always used)
+        assert residuals.dtype == np.float32
+        return np.apply_along_axis(
+            lambda x: adfuller(x, regression=adf_regression, autolag=None)[1],
+            axis=1,
+            arr=residuals,
+        )
 
     # Get ADF p-values
-    adfs = get_adfs(residuals.to_numpy(), adf_regression=adf_regression,).reshape(
-        (-1, 1)
-    )
+    adfs = _get_adfs(
+        residuals.to_numpy(),
+        adf_regression=adf_regression,
+    ).reshape((-1, 1))
 
     # Add ones to ADF values where betas are negative, if betas are given
     if betas is not None:
@@ -293,7 +299,10 @@ def get_mean_residual_magnitude(std_residuals: np.ndarray, dt: int) -> float:
 
 
 def get_trades_returns(
-    prices_X: np.ndarray, prices_Y: np.ndarray, betas_YX: np.ndarray, buy_X: np.ndarray,
+    prices_X: np.ndarray,
+    prices_Y: np.ndarray,
+    betas_YX: np.ndarray,
+    buy_X: np.ndarray,
 ) -> np.ndarray:
     # Sanity checks
     assert all([prices_X.shape == prices_Y.shape, len(buy_X) == betas_YX.shape[0]])
@@ -352,3 +361,112 @@ def get_trades_residuals(
     trade_residuals = ((trade_residuals - means_YX) / stds_YX).round(3)
 
     return trade_residuals
+
+
+def calculate_beta_stability_rsquared(
+    prices_X: pd.DataFrame,
+    prices_Y: pd.DataFrame,
+    betas: pd.DataFrame,
+    dates_index: pd.DataFrame,
+) -> np.array:
+    betas = betas.copy()
+
+    betas["dates"] = dates_index.values
+    first_reg_date = betas["dates"][0].split("_")[0]
+    last_reg_date = betas["dates"][-1].split("_")[-1]
+
+    betas["dates_end"] = betas["dates"].map(lambda x: x.split("_")[-1])
+    betas = betas.drop(columns="dates")
+    betas_original_order = betas.index.unique()
+
+    selected_tickers = utils.separate_pair_index(betas_original_order)
+    prices_X_selected = (
+        prices_X.reset_index()
+        .drop_duplicates(subset="index")
+        .set_index("index")
+        .copy()
+        .loc[selected_tickers["x"], first_reg_date:last_reg_date]
+    )
+    prices_Y_selected = (
+        prices_Y.reset_index()
+        .drop_duplicates(subset="index")
+        .set_index("index")
+        .copy()
+        .loc[selected_tickers["y"], first_reg_date:last_reg_date]
+    )
+
+    betas = (
+        betas.reset_index()
+        .pivot(index="index", columns="dates_end", values=0)
+        .loc[betas_original_order]
+    )
+
+    assert np.all(
+        (prices_Y_selected.index + "_" + prices_X_selected.index) == betas.index
+    )
+
+    # Finds the index of the closest earlier (ffill) date than the one given in pandas_index
+    def _get_closest_loc(pandas_index: pd.Index, value: str) -> int:
+        try:
+            return pandas_index.get_loc(value, method="ffill")
+        except KeyError:
+            return 0
+
+    betas = betas.iloc[
+        :, prices_X_selected.columns.map(lambda x: _get_closest_loc(betas.columns, x))
+    ].values
+
+    assert betas.shape == prices_X_selected.shape
+
+    last_betas = betas[:, -1].copy().reshape(-1, 1)
+
+    assert all(
+        [
+            prices_X_selected.shape == prices_Y_selected.shape,
+            len(last_betas) == len(prices_X_selected),
+        ]
+    )
+
+    spreads_X = prices_Y_selected.values - (betas * prices_X_selected.values)
+    spreads_Y = prices_Y_selected.values - (last_betas * prices_X_selected.values)
+
+    lr = LinearRegression(n_jobs=-1)
+    rsquared_vals = pd.DataFrame(
+        [
+            lr.fit(x.reshape(-1, 1), y.reshape(-1, 1)).score(
+                x.reshape(-1, 1), y.reshape(-1, 1)
+            )
+            for x, y in zip(spreads_X, spreads_Y)
+        ],
+        index=betas_original_order,
+        dtype=np.float32,
+    )
+    return rsquared_vals
+
+
+def calculate_arima_forecast_diff(
+    std_residuals: pd.DataFrame, forecast_months: int = 3, eval_models: int = 5
+) -> np.array:
+    forecast_length = forecast_months * DAYS_IN_TRADING_MONTH
+
+    arima_forecasts = np.apply_along_axis(
+        lambda x: auto_arima(
+            y=x,
+            seasonal=False,
+            stationary=True,
+            information_criterion="aic",
+            with_intercept=False,
+            maxiter=eval_models,
+            d=0,
+        ).fit_predict(y=x, n_periods=forecast_length)[-1],
+        axis=1,
+        arr=std_residuals.values,
+    )
+
+    residual_diffs = pd.DataFrame(
+        std_residuals.iloc[:, -1].values - arima_forecasts,
+        index=std_residuals.index,
+        dtype=np.float32,
+    )
+
+    return residual_diffs

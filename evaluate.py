@@ -27,14 +27,28 @@ def returns_on_predictions(df, y_preds):
 
     print("\nMeans:")
     print(
-        df[["result", "return_one_month", "return_two_month", "return_three_month",]]
+        df[
+            [
+                "result",
+                "return_one_month",
+                "return_two_month",
+                "return_three_month",
+            ]
+        ]
         .groupby("result")
         .mean()
     )
 
     print("\nStds:")
     print(
-        df[["result", "return_one_month", "return_two_month", "return_three_month",]]
+        df[
+            [
+                "result",
+                "return_one_month",
+                "return_two_month",
+                "return_three_month",
+            ]
+        ]
         .groupby("result")
         .std()
     )
@@ -78,7 +92,9 @@ def performance_on_slice(df, y_score, y_preds, on_slice, top_ten):
             top_scores = _df.sort_values("score", ascending=False).iloc[:10]
             top_scores["prediction"] = np.ones(len(top_scores))
             performance_summary(
-                top_scores["score"], top_scores["prediction"], top_scores["label"],
+                top_scores["score"],
+                top_scores["prediction"],
+                top_scores["label"],
             )
         else:
             performance_summary(_df["score"], _df["prediction"], _df["label"])

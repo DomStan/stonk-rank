@@ -22,7 +22,7 @@ def download_stonk_prices(
     interval: str = "1d",
     source: str = "yfinance",
     data_dir: str = "data",
-    fname_prefix: str = "stonks"
+    fname_prefix: str = "stonks",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Downloads historical price data for given tickers from a given source.
 
@@ -34,7 +34,7 @@ def download_stonk_prices(
         interval - valid intervals of price frequency: 1m,2m,5m,15m,30m,60m,90m,1h,1d,5d,1wk,1mo,3mo
         source - where to source data from; valid sources: yfinance
         data_dir - directory name where to save the downloaded data
-                
+
     Returns:
         Tuple containing the raw and cleaned versions of downloaded data (for debugging purposes).
     """
@@ -47,21 +47,23 @@ def download_stonk_prices(
     )
 
     if source.lower() == "yfinance":
-        stonks = pd.DataFrame(yf.download(
-            list(tickers),
-            start=date_from,
-            end=date_to,
-            interval=interval,
-            group_by="column",
-            threads=True,
-            rounding=True,
-        )["Adj Close"])
+        stonks = pd.DataFrame(
+            yf.download(
+                list(tickers),
+                start=date_from,
+                end=date_to,
+                interval=interval,
+                group_by="column",
+                threads=True,
+                rounding=True,
+            )["Adj Close"]
+        )
         stonks.dropna(axis=0, how="all", inplace=True)
 
         stonks.index = pd.to_datetime(stonks.index).date
         stonks.index.name = "date"
         stonks.sort_index(axis=0, inplace=True)
-        
+
         if len(stonks.columns) == 1:
             stonks.columns = tickers
 
@@ -86,9 +88,7 @@ def download_stonk_prices(
         raise ValueError("Unsupported data source")
 
     def _stonks_to_csv(df, is_cleaned):
-        filename = "{prefix}.csv".format(
-            prefix=fname_prefix
-        )
+        filename = "{prefix}.csv".format(prefix=fname_prefix)
 
         if is_cleaned:
             filename = "clean_" + filename
@@ -111,7 +111,7 @@ def get_ticker_names(
     filename: str = None,
 ) -> pd.DataFrame:
     """Read the CSV file containing all tickers and their subindustries and return tickers from the selected (or all) subindustries in a dataframe.
-    
+
     Args:
         industries: if not given, return all tickers.
     Returns:
@@ -139,13 +139,11 @@ def _read_stonk_data(
     fname_prefix: str = None, clean: bool = True, data_dir: str = None
 ) -> pd.DataFrame:
     data_dir = "data" if data_dir is None else data_dir
-    
+
     fname_prefix = "stonks" if fname_prefix is None else fname_prefix
     fname_prefix = "clean_" + fname_prefix if clean else fname_prefix
 
-    path = os.path.join(
-        data_dir, "{}.csv".format(fname_prefix)
-    )
+    path = os.path.join(data_dir, "{}.csv".format(fname_prefix))
     stonks = pd.read_csv(path, header=0, index_col=0).astype(np.float32)
 
     if clean:
@@ -161,24 +159,26 @@ def get_stonk_data(
     filter_industries: Iterable[str] = None,
     fname_prefix: str = None,
     data_dir: str = None,
-    disable_filter: bool = False
+    disable_filter: bool = False,
 ) -> pd.DataFrame:
     """Read the CSV file containing all stonk price data and return the tickers from the selected subindustries.
-    
+
     Args:
         industries - if not given, return all tickers
-    
+
     Returns:
         stonks - list of selected tickers' price data
     """
-    all_stonks = _read_stonk_data(data_dir=data_dir, clean=clean, fname_prefix=fname_prefix)
+    all_stonks = _read_stonk_data(
+        data_dir=data_dir, clean=clean, fname_prefix=fname_prefix
+    )
     if disable_filter:
         return all_stonks
     selected_tickers = get_ticker_names(
         market_cap_min_mm=market_cap_min_mm,
         market_cap_max_mm=market_cap_max_mm,
         filter_industries=filter_industries,
-        data_dir=data_dir
+        data_dir=data_dir,
     )
     return all_stonks[all_stonks.index.isin(selected_tickers.index)]
 
@@ -219,7 +219,7 @@ def preprocess_stock_list(
     Args:
         raw_data_path: Path to the raw excel file.
         output_path: Path where to save the parsed data.
-                
+
     Returns:
         Processed ticker names as a CSV file containing columns: ticker, market_cap_mm, subindustry
     """
@@ -316,16 +316,16 @@ def build_dataset_from_live_data_by_industry(
     vix_index: float,
 ) -> pd.DataFrame:
     """Builds an inference-ready (before pre-processing) dataset with predefined feature names from incoming live data for one subindustry.
-    
+
     Args:
         std_residuals - numpy array containing N rows of standardized residuals for each trade
         adfs - numpy array containing N rows of ADF test pass rates for each trade
         subindustry - string name of the subindustry
         mean_max_residual - averaged max standardized residual value for the current subindustry
-    
+
     Returns:
         pandas dataframe with a named column for each feature which should all be of equal length
-    
+
     """
     output_length = len(std_residuals)
     dataset = {}
