@@ -10,6 +10,42 @@ import sklearn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
+_INDUSTRY_MAPPINGS = {
+    "chemicals": "materials",
+    "construction_materials": "materials",
+    "containers_and_packaging": "materials",
+    "metals_and_mining": "materials",
+    "paper_and_forest_products": "materials",
+    #
+    "capital_goods": "industrials",
+    "commercial_and_professional_services": "industrials",
+    "transportation": "industrials",
+    #
+    "automobiles_and_components": "consumer_discretionary",
+    "consumer_durables_and_apparel": "consumer_discretionary",
+    "consumer_services": "consumer_discretionary",
+    "retailing": "consumer_discretionary",
+    #
+    "health_care_equipment_and_services": "health_care",
+    "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
+    #
+    "banks": "financials",
+    "diversified_financials": "financials",
+    "insurance": "financials",
+    #
+    "software_and_services": "information_technology",
+    "technology_hardware_and_equipment": "information_technology",
+    "semiconductors_and_semiconductor_equipment": "information_technology",
+    #
+    "telecommunication_services": "communication_services",
+    "media_and_entertainment": "communication_services",
+    #
+    "energy": "energy",
+    "utilities": "utilities",
+    "real_estate": "real_estate",
+    "consumer_staples": "consumer_staples",
+}
+
 
 def split_data(
     df: pd.DataFrame,
@@ -104,42 +140,7 @@ def transform_features(
     noise_level: Optional[float] = 0,
 ) -> Tuple[pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],]:
     def _map_industry(example):
-        mappings = {
-            "chemicals": "materials",
-            "construction_materials": "materials",
-            "containers_and_packaging": "materials",
-            "metals_and_mining": "materials",
-            "paper_and_forest_products": "materials",
-            #
-            "capital_goods": "industrials",
-            "commercial_and_professional_services": "industrials",
-            "transportation": "industrials",
-            #
-            "automobiles_and_components": "consumer_discretionary",
-            "consumer_durables_and_apparel": "consumer_discretionary",
-            "consumer_services": "consumer_discretionary",
-            "retailing": "consumer_discretionary",
-            #
-            "health_care_equipment_and_services": "health_care",
-            "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
-            #
-            "banks": "financials",
-            "diversified_financials": "financials",
-            "insurance": "financials",
-            #
-            "software_and_services": "information_technology",
-            "technology_hardware_and_equipment": "information_technology",
-            "semiconductors_and_semiconductor_equipment": "information_technology",
-            #
-            "telecommunication_services": "communication_services",
-            "media_and_entertainment": "communication_services",
-            #
-            "energy": "energy",
-            "utilities": "utilities",
-            "real_estate": "real_estate",
-            "consumer_staples": "consumer_staples",
-        }
-        return mappings[example["subindustry"]]
+        return _INDUSTRY_MAPPINGS[example["subindustry"]]
 
     def _get_new_scaler(scaling):
         if scaling == "minmax":
@@ -152,6 +153,8 @@ def transform_features(
         "last_residual": np.float32,
         "residual_mean_max": np.float32,
         "vix": np.float32,
+        "betas_rsquared": np.float32,
+        "arima_forecast_diff": np.float32,
     }
 
     df_copy = X.copy()
@@ -159,7 +162,15 @@ def transform_features(
 
     # Select features
     df_copy = df_copy[
-        ["adf_pass_rate", "last_residual", "residual_mean_max", "subindustry", "vix"]
+        [
+            "adf_pass_rate",
+            "last_residual",
+            "residual_mean_max",
+            "subindustry",
+            "vix",
+            "betas_rsquared",
+            "arima_forecast",
+        ]
     ].astype(data_types)
 
     # Industry transform
@@ -169,6 +180,9 @@ def transform_features(
 
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
+
+    # Arima forecast transform
+    df_copy.loc[:, "arima_forecast"] = df_copy["arima_forecast"].abs()
 
     # Feature cross
     df_copy.loc[:, "residual_inter"] = (

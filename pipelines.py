@@ -34,6 +34,7 @@ def data_collection_rolling_pipeline(
     trading_interval_weeks: int,
     first_n_windows: Optional[int] = None,
     data_dir: Optional[str] = "data",
+    verbose: Optional[bool] = False,
 ) -> None:
 
     # Adjust days so that they are divisible by dt
@@ -69,12 +70,13 @@ def data_collection_rolling_pipeline(
         data_window = stonk_prices.iloc[:, index_start:index_end]
         assert data_window.shape[1] == total_backtest_days
 
-        print(
-            "Period "
-            + str(data_window.columns[0])
-            + " to "
-            + str(data_window.columns[-1])
-        )
+        if verbose:
+            print(
+                "Period "
+                + str(data_window.columns[0])
+                + " to "
+                + str(data_window.columns[-1])
+            )
 
         data_all_industries = []
         for industry in industries:
@@ -106,12 +108,13 @@ def data_collection_rolling_pipeline(
 
             data_all_industries.append(data)
 
-            print(
-                "Industries "
-                + str(len(data_all_industries))
-                + "/"
-                + str(total_industries)
-            )
+            if verbose:
+                print(
+                    "Industries "
+                    + str(len(data_all_industries))
+                    + "/"
+                    + str(total_industries)
+                )
 
         data_all_industries = pd.concat(data_all_industries, ignore_index=True)
 
@@ -143,7 +146,9 @@ def data_collection_rolling_pipeline(
         data_all_industries.to_csv(data_output_path, header=True, index=False)
 
         total_data_windows -= 1
-        print("Remaining data windows: " + str(total_data_windows))
+
+        if verbose:
+            print("Remaining data windows: " + str(total_data_windows))
 
         if total_data_windows == 0:
             print("All done")
@@ -264,7 +269,7 @@ def _data_collection_step(
     ###
 
     ### ARIMA model forecast calculations
-    arima_forecast_diffs = processing.calculate_arima_forecast_diff(
+    arima_forecasts = processing.calculate_arima_forecast(
         std_residuals=std_residuals,
         forecast_months=arima_forecast_months,
         eval_models=arima_eval_models,
@@ -306,7 +311,7 @@ def _data_collection_step(
     output["intercept"] = intercepts_last[0].to_numpy().round(3)
     output["residual_mean_max"] = np.full(output_length, residuals_max_mean)
     output["betas_rsquared"] = beta_stability_rsquared_vals[0].to_numpy()
-    output["arima_forecast_diff"] = arima_forecast_diffs[0].to_numpy()
+    output["arima_forecast"] = arima_forecasts[0].to_numpy()
 
     output["return_one_month"] = trade_returns[:, 1 * DAYS_IN_TRADING_MONTH]
     output["residual_one_month"] = trade_residuals[:, 1 * DAYS_IN_TRADING_MONTH]

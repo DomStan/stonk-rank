@@ -444,7 +444,7 @@ def calculate_beta_stability_rsquared(
     return rsquared_vals
 
 
-def calculate_arima_forecast_diff(
+def calculate_arima_forecast(
     std_residuals: pd.DataFrame, forecast_months: int = 3, eval_models: int = 5
 ) -> np.array:
     forecast_length = forecast_months * DAYS_IN_TRADING_MONTH
@@ -463,10 +463,10 @@ def calculate_arima_forecast_diff(
         arr=std_residuals.values,
     )
 
-    residual_diffs = pd.DataFrame(
-        std_residuals.iloc[:, -1].values - arima_forecasts,
+    arima_forecasts = pd.DataFrame(
+        arima_forecasts,
         index=std_residuals.index,
         dtype=np.float32,
     )
 
-    return residual_diffs
+    return arima_forecasts
