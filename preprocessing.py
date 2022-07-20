@@ -139,8 +139,8 @@ def transform_features(
     scalers: Optional[Dict[str, sklearn.base.TransformerMixin]] = None,
     noise_level: Optional[float] = 0,
 ) -> Tuple[pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],]:
-    def _map_industry(example):
-        return _INDUSTRY_MAPPINGS[example["subindustry"]]
+    def _map_industry(df_row):
+        return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
 
     def _get_new_scaler(scaling):
         if scaling == "minmax":
@@ -154,7 +154,7 @@ def transform_features(
         "residual_mean_max": np.float32,
         "vix": np.float32,
         "betas_rsquared": np.float32,
-        "arima_forecast_diff": np.float32,
+        "arima_forecast": np.float32,
     }
 
     df_copy = X.copy()
@@ -177,12 +177,12 @@ def transform_features(
     df_copy.loc[:, "industry"] = df_copy.apply(_map_industry, axis=1)
     df_copy = df_copy.drop(columns="subindustry")
     df_copy["industry"] = df_copy["industry"].astype("category")
+    
+    # Arima forecast transform
+    df_copy.loc[:, "arima_forecast"] = df_copy.apply(_normalize_arima_forecast, axis=1)
 
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
-
-    # Arima forecast transform
-    df_copy.loc[:, "arima_forecast"] = df_copy["arima_forecast"].abs()
 
     # Feature cross
     df_copy.loc[:, "residual_inter"] = (
@@ -216,3 +216,14 @@ def transform_features(
     df_copy.loc[:, "vix"] = scaler.transform(df_copy["vix"].to_numpy().reshape(-1, 1))
 
     return df_copy, scalers
+
+def _normalize_arima_forecast(df_row):
+    residual = df_row["last_residual"]
+    arima = df_row["arima_forecast"]
+    
+    diff = np.absolute(residual - arima)
+    
+    if (residual >= 0 and arima > residual) or (residual < 0 and arima < residual):
+        diff*= -1
+        
+    return diff
