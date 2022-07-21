@@ -177,7 +177,7 @@ def transform_features(
     df_copy.loc[:, "industry"] = df_copy.apply(_map_industry, axis=1)
     df_copy = df_copy.drop(columns="subindustry")
     df_copy["industry"] = df_copy["industry"].astype("category")
-    
+
     # Arima forecast transform
     df_copy.loc[:, "arima_forecast"] = df_copy.apply(_normalize_arima_forecast, axis=1)
 
@@ -217,13 +217,14 @@ def transform_features(
 
     return df_copy, scalers
 
+
 def _normalize_arima_forecast(df_row):
     residual = df_row["last_residual"]
     arima = df_row["arima_forecast"]
-    
+
     diff = np.absolute(residual - arima)
-    
+
     if (residual >= 0 and arima > residual) or (residual < 0 and arima < residual):
-        diff*= -1
-        
+        diff *= -1
+
     return diff

@@ -32,7 +32,7 @@ def combine_stonk_pairs(
 
 def get_residuals_many(
     X: np.ndarray, Y: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.array, np.array]:
     """Vectorized calculation of residuals from many univariate linear regressions.
     Args:
         X (numpy array of shape (n_pairs, d_time)): matrix of LR inputs X, each row represents a different regression, corresponding to the same rows in Y
@@ -51,19 +51,25 @@ def get_residuals_many(
         [X, np.ones((np.shape(X)[0], np.shape(X)[1], 1), dtype=np.float32)],
         axis=2,
     )
-    del X
+    
 
     # Save the transpose as it's used a couple of times
     Z_t = Z.transpose(0, 2, 1)
 
     # Linear Regression equation solutions w.r.t. weight matrix
     # W contains (beta_coef, a_intercept) for each regression
-    W = np.matmul(np.linalg.inv(np.matmul(Z_t, Z)), np.matmul(Z_t, Y))
+    try:
+        W = np.matmul(np.linalg.inv(np.matmul(Z_t, Z)), np.matmul(Z_t, Y))
+    except:
+        # Fallback to non-vectorized calculation using sklearn
+        return _get_sklearn_residuals_many(X=X, Y=Y)
+        
+    del X
     del Z_t
 
     # Predictions and residuals
     # Y_hat = np.matmul(Z, W).round(2)
-    residuals = (Y - np.matmul(Z, W)).round(2)
+    residuals = (Y - np.matmul(Z, W)).round(3)
     del Y
     del Z
     assert residuals.dtype == np.float32
@@ -71,6 +77,23 @@ def get_residuals_many(
     # Y_hat returned for debugging purposes
     # return (residuals[:, :, 0], W[:, 0, 0], Y_hat[:, :, 0])
     return (residuals[:, :, 0], W[:, 0, 0], W[:, 1, 0])
+
+def _get_sklearn_residuals_many(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarray, np.array, np.array]:
+    lr = LinearRegression(n_jobs=-1, fit_intercept=True)
+    X = X.reshape((X.shape[0], X.shape[1], -1))
+    Y = Y.reshape((Y.shape[0], Y.shape[1], -1))
+    
+    preds = []
+    res = []
+    betas = []
+    intercepts = []
+    for i in range(X.shape[0]):
+        lr.fit(X[i], Y[i])
+        preds.append(lr.predict(X[i]).round(3))
+        res.append(Y[i]-preds[-1])
+        betas.append(lr.coef_[0][0])
+        intercepts.append(lr.intercept_)
+    return (np.asarray(res)[:,:,0], np.asarray(betas).ravel(), np.asarray(intercepts).ravel())
 
 
 def get_rolling_residuals(

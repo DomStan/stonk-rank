@@ -309,11 +309,13 @@ def preprocess_stock_list(
 
 
 def build_dataset_from_live_data_by_industry(
-    std_residuals: np.ndarray,
-    adfs: np.ndarray,
+    std_residuals: pd.DataFrame,
+    adfs: pd.DataFrame,
     subindustry: str,
     mean_max_residual: float,
     vix_index: float,
+    betas_stability_rsquared: pd.DataFrame,
+    arima_forecasts: pd.DataFrame,
 ) -> pd.DataFrame:
     """Builds an inference-ready (before pre-processing) dataset with predefined feature names from incoming live data for one subindustry.
 
@@ -329,11 +331,13 @@ def build_dataset_from_live_data_by_industry(
     """
     output_length = len(std_residuals)
     dataset = {}
-    dataset["adf_pass_rate"] = adfs.round(3)
-    dataset["last_residual"] = std_residuals[:, -1].round(3)
+    dataset["adf_pass_rate"] = adfs.to_numpy().ravel().round(3)
+    dataset["last_residual"] = std_residuals.to_numpy()[:, -1].round(3)
     dataset["residual_mean_max"] = np.full(output_length, mean_max_residual)
     dataset["subindustry"] = np.full(output_length, subindustry)
     dataset["vix"] = np.full(output_length, vix_index)
+    dataset["betas_rsquared"] = betas_stability_rsquared[0].to_numpy()
+    dataset["arima_forecast"] = arima_forecasts[0].to_numpy()
 
     # All columns must have equal length
     assert len(set([len(x) for x in dataset.values()])) == 1
