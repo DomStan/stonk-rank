@@ -113,16 +113,16 @@ def split_data(
 def assign_labels(df: pd.DataFrame) -> pd.DataFrame:
     def label_one_example(example):
         success_one_month = (
-            example["return_one_month"] >= 0.045
+            example["return_one_month"] >= 0.065
             and np.abs(example["last_residual"] - example["residual_one_month"]) >= 2
         )
         success_two_month = (
             example["return_two_month"] >= 0.065
-            and np.abs(example["last_residual"] - example["residual_two_month"]) >= 2
+            and np.abs(example["last_residual"] - example["residual_two_month"]) >= 1.5
         )
         success_three_month = (
             example["return_three_month"] >= 0.095
-            and np.abs(example["last_residual"] - example["residual_three_month"]) >= 2
+            and np.abs(example["last_residual"] - example["residual_three_month"]) >= 1.5
         )
         label_positive = int(
             any([success_one_month, success_two_month, success_three_month])
