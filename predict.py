@@ -15,7 +15,7 @@ class StonkModelInterface:
     _model = None
     _scalers = None
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pd.DataFrame) -> Tuple[np.ndarray, pd.DataFrame]:
         pass
 
 
@@ -41,5 +41,5 @@ class XGBStonkModel(StonkModelInterface):
             X=X, scalers=self._scalers, noise_level=0
         )
         assert scalers_returned is self._scalers
-        
+
         return self._model.predict_proba(X_transformed)[:, 1], X_transformed
