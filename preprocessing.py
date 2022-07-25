@@ -10,12 +10,49 @@ import sklearn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
+_INDUSTRY_MAPPINGS = {
+    "chemicals": "materials",
+    "construction_materials": "materials",
+    "containers_and_packaging": "materials",
+    "metals_and_mining": "materials",
+    "paper_and_forest_products": "materials",
+    #
+    "capital_goods": "industrials",
+    "commercial_and_professional_services": "industrials",
+    "transportation": "industrials",
+    #
+    "automobiles_and_components": "consumer_discretionary",
+    "consumer_durables_and_apparel": "consumer_discretionary",
+    "consumer_services": "consumer_discretionary",
+    "retailing": "consumer_discretionary",
+    #
+    "health_care_equipment_and_services": "health_care",
+    "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
+    #
+    "banks": "financials",
+    "diversified_financials": "financials",
+    "insurance": "financials",
+    #
+    "software_and_services": "information_technology",
+    "technology_hardware_and_equipment": "information_technology",
+    "semiconductors_and_semiconductor_equipment": "information_technology",
+    #
+    "telecommunication_services": "communication_services",
+    "media_and_entertainment": "communication_services",
+    #
+    "energy": "energy",
+    "utilities": "utilities",
+    "real_estate": "real_estate",
+    "consumer_staples": "consumer_staples",
+}
+
+
 def split_data(
     df: pd.DataFrame,
     date_count_valid: int,
     date_count_gap: int,
     date_remove_train: int = 0,
-    random_state: int = None
+    random_state: int = None,
 ) -> Dict[str, pd.DataFrame]:
     df_copy = df.copy()
 
@@ -23,17 +60,29 @@ def split_data(
     df_copy = df_copy.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
     dates_sorted = np.sort(df["trade_date"].unique())
-    
+
     total_date_count = len(dates_sorted)
-    
+
     date_count_train = total_date_count - date_count_valid - date_count_gap
 
-    assert date_count_train > 0 and sum([date_count_train, date_count_valid, date_count_gap]) <= total_date_count
+    assert (
+        date_count_train > 0
+        and sum([date_count_train, date_count_valid, date_count_gap])
+        <= total_date_count
+    )
 
-    dates_valid = dates_sorted[date_count_train+date_count_gap : date_count_train+date_count_gap+date_count_valid]
+    dates_valid = dates_sorted[
+        date_count_train
+        + date_count_gap : date_count_train
+        + date_count_gap
+        + date_count_valid
+    ]
     dates_train = dates_sorted[date_remove_train:date_count_train]
-    
-    assert len(dates_valid) == date_count_valid and len(dates_train) == date_count_train - date_remove_train
+
+    assert (
+        len(dates_valid) == date_count_valid
+        and len(dates_train) == date_count_train - date_remove_train
+    )
     assert all([x > dates_train[-1] for x in dates_valid])
     assert all([x < dates_valid[0] for x in dates_train])
 
@@ -52,7 +101,9 @@ def split_data(
     )
 
     # No intersection
-    assert len(set(df_valid.trade_date.unique()) & set(df_train.trade_date.unique())) == 0
+    assert (
+        len(set(df_valid.trade_date.unique()) & set(df_train.trade_date.unique())) == 0
+    )
 
     assert not np.any(df_valid.index.isin(df_train.index))
 
@@ -62,16 +113,16 @@ def split_data(
 def assign_labels(df: pd.DataFrame) -> pd.DataFrame:
     def label_one_example(example):
         success_one_month = (
-            example["return_one_month"] >= 0.045
+            example["return_one_month"] >= 0.065
             and np.abs(example["last_residual"] - example["residual_one_month"]) >= 2
         )
         success_two_month = (
             example["return_two_month"] >= 0.065
-            and np.abs(example["last_residual"] - example["residual_two_month"]) >= 2
+            and np.abs(example["last_residual"] - example["residual_two_month"]) >= 1.5
         )
         success_three_month = (
             example["return_three_month"] >= 0.095
-            and np.abs(example["last_residual"] - example["residual_three_month"]) >= 2
+            and np.abs(example["last_residual"] - example["residual_three_month"]) >= 1.5
         )
         label_positive = int(
             any([success_one_month, success_two_month, success_three_month])
@@ -87,46 +138,9 @@ def transform_features(
     X: pd.DataFrame,
     scalers: Optional[Dict[str, sklearn.base.TransformerMixin]] = None,
     noise_level: Optional[float] = 0,
-) -> Tuple[
-    pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],
-]:
-    def _map_industry(example):
-        mappings = {
-            "chemicals": "materials",
-            "construction_materials": "materials",
-            "containers_and_packaging": "materials",
-            "metals_and_mining": "materials",
-            "paper_and_forest_products": "materials",
-            #
-            "capital_goods": "industrials",
-            "commercial_and_professional_services": "industrials",
-            "transportation": "industrials",
-            #
-            "automobiles_and_components": "consumer_discretionary",
-            "consumer_durables_and_apparel": "consumer_discretionary",
-            "consumer_services": "consumer_discretionary",
-            "retailing": "consumer_discretionary",
-            #
-            "health_care_equipment_and_services": "health_care",
-            "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
-            #
-            "banks": "financials",
-            "diversified_financials": "financials",
-            "insurance": "financials",
-            #
-            "software_and_services": "information_technology",
-            "technology_hardware_and_equipment": "information_technology",
-            "semiconductors_and_semiconductor_equipment": "information_technology",
-            #
-            "telecommunication_services": "communication_services",
-            "media_and_entertainment": "communication_services",
-            #
-            "energy": "energy",
-            "utilities": "utilities",
-            "real_estate": "real_estate",
-            "consumer_staples": "consumer_staples",
-        }
-        return mappings[example["subindustry"]]
+) -> Tuple[pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],]:
+    def _map_industry(df_row):
+        return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
 
     def _get_new_scaler(scaling):
         if scaling == "minmax":
@@ -139,6 +153,8 @@ def transform_features(
         "last_residual": np.float32,
         "residual_mean_max": np.float32,
         "vix": np.float32,
+        "betas_rsquared": np.float32,
+        "arima_forecast": np.float32,
     }
 
     df_copy = X.copy()
@@ -146,13 +162,24 @@ def transform_features(
 
     # Select features
     df_copy = df_copy[
-        ["adf_pass_rate", "last_residual", "residual_mean_max", "subindustry", "vix"]
+        [
+            "adf_pass_rate",
+            "last_residual",
+            "residual_mean_max",
+            "subindustry",
+            "vix",
+            "betas_rsquared",
+            "arima_forecast",
+        ]
     ].astype(data_types)
 
     # Industry transform
     df_copy.loc[:, "industry"] = df_copy.apply(_map_industry, axis=1)
     df_copy = df_copy.drop(columns="subindustry")
     df_copy["industry"] = df_copy["industry"].astype("category")
+
+    # Arima forecast transform
+    df_copy.loc[:, "arima_forecast"] = df_copy.apply(_normalize_arima_forecast, axis=1)
 
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
@@ -183,11 +210,21 @@ def transform_features(
     df_copy.loc[:, "adf_pass_rate"] = scaler.transform(
         df_copy["adf_pass_rate"].to_numpy().reshape(-1, 1)
     )
-        
+
     # Vix index scaling
     scaler = scalers["vix"]
-    df_copy.loc[:, "vix"] = scaler.transform(
-        df_copy["vix"].to_numpy().reshape(-1, 1)
-    )
+    df_copy.loc[:, "vix"] = scaler.transform(df_copy["vix"].to_numpy().reshape(-1, 1))
 
     return df_copy, scalers
+
+
+def _normalize_arima_forecast(df_row):
+    residual = df_row["last_residual"]
+    arima = df_row["arima_forecast"]
+
+    diff = np.absolute(residual - arima)
+
+    if (residual >= 0 and arima > residual) or (residual < 0 and arima < residual):
+        diff *= -1
+
+    return diff
