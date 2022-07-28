@@ -106,7 +106,7 @@ def download_stonk_prices(
 def get_ticker_names(
     market_cap_min_mm: float,
     market_cap_max_mm: float,
-    filter_industries: Iterable[str] = None,
+    remove_industries: Iterable[str] = None,
     data_dir: str = None,
     filename: str = None,
 ) -> pd.DataFrame:
@@ -130,8 +130,8 @@ def get_ticker_names(
     ]
     return (
         tickers
-        if not filter_industries
-        else tickers[tickers["subindustry"].isin(filter_industries)]
+        if not remove_industries
+        else tickers[~tickers["subindustry"].isin(remove_industries)]
     )
 
 
@@ -153,10 +153,10 @@ def _read_stonk_data(
 
 
 def get_stonk_data(
-    market_cap_min_mm: float = 1000,
+    market_cap_min_mm: float = 0,
     market_cap_max_mm: float = None,
     clean: bool = True,
-    filter_industries: Iterable[str] = None,
+    remove_industries: Iterable[str] = None,
     fname_prefix: str = None,
     data_dir: str = None,
     disable_filter: bool = False,
@@ -177,7 +177,7 @@ def get_stonk_data(
     selected_tickers = get_ticker_names(
         market_cap_min_mm=market_cap_min_mm,
         market_cap_max_mm=market_cap_max_mm,
-        filter_industries=filter_industries,
+        remove_industries=remove_industries,
         data_dir=data_dir,
     )
     return all_stonks[all_stonks.index.isin(selected_tickers.index)]

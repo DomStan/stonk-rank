@@ -395,7 +395,7 @@ def calculate_beta_stability_rsquared(
     betas = betas.copy()
 
     betas["dates"] = dates_index.values
-    first_reg_date = betas["dates"][0].split("_")[0]
+    first_reg_date = betas["dates"][0].split("_")[-1]
     last_reg_date = betas["dates"][-1].split("_")[-1]
 
     betas["dates_end"] = betas["dates"].map(lambda x: x.split("_")[-1])
