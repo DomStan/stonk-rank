@@ -51,7 +51,6 @@ def get_residuals_many(
         [X, np.ones((np.shape(X)[0], np.shape(X)[1], 1), dtype=np.float32)],
         axis=2,
     )
-    
 
     # Save the transpose as it's used a couple of times
     Z_t = Z.transpose(0, 2, 1)
@@ -63,7 +62,7 @@ def get_residuals_many(
     except:
         # Fallback to non-vectorized calculation using sklearn
         return _get_sklearn_residuals_many(X=X, Y=Y)
-        
+
     del X
     del Z_t
 
@@ -78,11 +77,14 @@ def get_residuals_many(
     # return (residuals[:, :, 0], W[:, 0, 0], Y_hat[:, :, 0])
     return (residuals[:, :, 0], W[:, 0, 0], W[:, 1, 0])
 
-def _get_sklearn_residuals_many(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarray, np.array, np.array]:
+
+def _get_sklearn_residuals_many(
+    X: np.ndarray, Y: np.ndarray
+) -> Tuple[np.ndarray, np.array, np.array]:
     lr = LinearRegression(n_jobs=-1, fit_intercept=True)
     X = X.reshape((X.shape[0], X.shape[1], -1))
     Y = Y.reshape((Y.shape[0], Y.shape[1], -1))
-    
+
     preds = []
     res = []
     betas = []
@@ -90,10 +92,14 @@ def _get_sklearn_residuals_many(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarra
     for i in range(X.shape[0]):
         lr.fit(X[i], Y[i])
         preds.append(lr.predict(X[i]).round(3))
-        res.append(Y[i]-preds[-1])
+        res.append(Y[i] - preds[-1])
         betas.append(lr.coef_[0][0])
         intercepts.append(lr.intercept_)
-    return (np.asarray(res)[:,:,0], np.asarray(betas).ravel(), np.asarray(intercepts).ravel())
+    return (
+        np.asarray(res)[:, :, 0],
+        np.asarray(betas).ravel(),
+        np.asarray(intercepts).ravel(),
+    )
 
 
 def get_rolling_residuals(
@@ -395,7 +401,7 @@ def calculate_beta_stability_rsquared(
     betas = betas.copy()
 
     betas["dates"] = dates_index.values
-    first_reg_date = betas["dates"][0].split("_")[0]
+    first_reg_date = betas["dates"][0].split("_")[-1]
     last_reg_date = betas["dates"][-1].split("_")[-1]
 
     betas["dates_end"] = betas["dates"].map(lambda x: x.split("_")[-1])

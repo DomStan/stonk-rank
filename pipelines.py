@@ -32,10 +32,20 @@ def data_collection_rolling_pipeline(
     arima_eval_models: int,
     trade_length_months: int,
     trading_interval_weeks: int,
+    remove_industries: Optional[Iterable[str]] = None,
     first_n_windows: Optional[int] = None,
     data_dir: Optional[str] = "data",
     verbose: Optional[bool] = False,
 ) -> None:
+
+    market_cap_max_string = (
+        "max" if market_cap_max_mm is None else str(market_cap_max_mm)
+    )
+    data_output_dir = os.path.join(
+        data_dir,
+        "data_collection_pipeline",
+        str(market_cap_min_mm) + "_to_" + market_cap_max_string,
+    )
 
     # Adjust days so that they are divisible by dt
     l_reg_days = int(DAYS_IN_TRADING_YEAR * l_reg)
@@ -49,7 +59,10 @@ def data_collection_rolling_pipeline(
     total_backtest_days = total_days + trade_length_days
 
     tickers = utils.get_ticker_names(
-        market_cap_min_mm, market_cap_max_mm, data_dir=data_dir
+        market_cap_min_mm,
+        market_cap_max_mm,
+        data_dir=data_dir,
+        remove_industries=remove_industries,
     )
     industries = list(tickers["subindustry"].unique())
 
@@ -141,9 +154,9 @@ def data_collection_rolling_pipeline(
             + ".csv"
         )
 
-        data_output_path = os.path.join(data_dir, "trades", filename)
+        data_output_file_path = os.path.join(data_output_dir, filename)
 
-        data_all_industries.to_csv(data_output_path, header=True, index=False)
+        data_all_industries.to_csv(data_output_file_path, header=True, index=False)
 
         total_data_windows -= 1
 
