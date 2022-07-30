@@ -6,6 +6,7 @@ import time
 from typing import Iterable
 from typing import Dict
 from typing import Tuple
+from typing import Optional
 from numpy.typing import ArrayLike
 
 import pandas as pd
@@ -157,6 +158,7 @@ def get_stonk_data(
     market_cap_max_mm: float = None,
     clean: bool = True,
     remove_industries: Iterable[str] = None,
+    filter_industries: Optional[bool] = False,
     fname_prefix: str = None,
     data_dir: str = None,
     disable_filter: bool = False,
@@ -180,7 +182,10 @@ def get_stonk_data(
         remove_industries=remove_industries,
         data_dir=data_dir,
     )
-    return all_stonks[all_stonks.index.isin(selected_tickers.index)]
+    if filter_industries:
+        return all_stonks[~all_stonks.index.isin(selected_tickers.index)]
+    else:
+        return all_stonks[all_stonks.index.isin(selected_tickers.index)]
 
 
 def ingest_trade_pipeline_outputs(data_dir="data/trades"):

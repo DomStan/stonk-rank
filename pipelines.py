@@ -38,9 +38,15 @@ def data_collection_rolling_pipeline(
     verbose: Optional[bool] = False,
 ) -> None:
 
-    market_cap_max_string = "max" if market_cap_max_mm is None else str(market_cap_max_mm)
-    data_output_dir = os.path.join(data_dir, "data_collection_pipeline", str(market_cap_min_mm) + "_to_" + market_cap_max_string)
-    
+    market_cap_max_string = (
+        "max" if market_cap_max_mm is None else str(market_cap_max_mm)
+    )
+    data_output_dir = os.path.join(
+        data_dir,
+        "data_collection_pipeline",
+        str(market_cap_min_mm) + "_to_" + market_cap_max_string,
+    )
+
     # Adjust days so that they are divisible by dt
     l_reg_days = int(DAYS_IN_TRADING_YEAR * l_reg)
     l_reg_days -= l_reg_days % dt
@@ -53,7 +59,10 @@ def data_collection_rolling_pipeline(
     total_backtest_days = total_days + trade_length_days
 
     tickers = utils.get_ticker_names(
-        market_cap_min_mm, market_cap_max_mm, data_dir=data_dir, remove_industries=remove_industries
+        market_cap_min_mm,
+        market_cap_max_mm,
+        data_dir=data_dir,
+        remove_industries=remove_industries,
     )
     industries = list(tickers["subindustry"].unique())
 
