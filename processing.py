@@ -322,7 +322,7 @@ def get_mean_residual_magnitude(std_residuals: np.ndarray, dt: int) -> float:
     assert std_residuals.shape[1] >= dt
 
     # Take the absolute maximum for each day, over all tickers, mean over the results
-    mean_magnitude = np.round(np.abs(std_residuals[:, -dt:]).max(axis=0).mean(), 2)
+    mean_magnitude = np.round(np.abs(std_residuals[:, -dt:]).max(axis=0).mean(), 3)
 
     return mean_magnitude
 
@@ -476,7 +476,7 @@ def calculate_beta_stability_rsquared(
 def calculate_arima_forecast(
     std_residuals: pd.DataFrame, forecast_months: int = 3, eval_models: int = 5
 ) -> np.array:
-    forecast_length = forecast_months * DAYS_IN_TRADING_MONTH
+    forecast_length = int(forecast_months * DAYS_IN_TRADING_MONTH)
 
     arima_forecasts = np.apply_along_axis(
         lambda x: auto_arima(
@@ -499,3 +499,66 @@ def calculate_arima_forecast(
     )
 
     return arima_forecasts
+
+
+def get_correlation_with_historical_market_factors_research(
+    std_residuals: pd.DataFrame, dates_index: pd.DataFrame
+) -> pd.DataFrame:
+    last_reg_dates = dates_index.iloc[-1].str.split("_")[0]
+
+    df_market_factors = utils.get_market_factors_research_data()
+    df_market_factors = df_market_factors.loc[last_reg_dates[0] : last_reg_dates[-1]]
+
+    std_residuals_pct = std_residuals.pct_change(
+        DAYS_IN_TRADING_MONTH, axis="columns"
+    ).dropna(axis="columns")
+    df_market_factors = df_market_factors.iloc[
+        DAYS_IN_TRADING_MONTH:,
+    ]
+
+    std_residuals_pct = std_residuals_pct.iloc[:, : len(df_market_factors)]
+
+    def _correlation_with_market_factors(X):
+        return df_market_factors.apply(
+            lambda y: np.corrcoef(X, y)[0][-1], axis="rows", raw=True
+        )
+
+    std_residuals_corr = std_residuals_pct.apply(
+        _correlation_with_market_factors, axis="columns", result_type="expand"
+    )
+    std_residuals_corr.columns = "corr_" + std_residuals_corr.columns.str.lower()
+
+    return std_residuals_corr
+
+
+def get_correlation_with_live_market_indexes(
+    std_residuals: pd.DataFrame,
+    dates_index: pd.DataFrame,
+    market_indexes: pd.DataFrame,
+    diff_period_months: int = 1,
+) -> pd.DataFrame:
+    diff_period_days = int(diff_period_months * DAYS_IN_TRADING_MONTH)
+    last_reg_dates = dates_index.iloc[-1].str.split("_")[0]
+
+    market_indexes_pct = (
+        market_indexes.loc[last_reg_dates[0] : last_reg_dates[-1]]
+        .pct_change(diff_period_days, axis="rows")
+        .dropna(axis="rows")
+    )
+    std_residuals_pct = std_residuals.pct_change(
+        diff_period_days, axis="columns"
+    ).dropna(axis="columns")
+
+    assert market_indexes_pct.shape[0] == std_residuals_pct.shape[1]
+
+    def _correlation_with_market_indexes(X):
+        return market_indexes_pct.apply(
+            lambda y: np.corrcoef(X, y)[0][-1], axis="rows", raw=True
+        )
+
+    std_residuals_corr = std_residuals_pct.apply(
+        _correlation_with_market_indexes, axis="columns", result_type="expand"
+    )
+    std_residuals_corr.columns = "corr_" + std_residuals_corr.columns.str.lower()
+
+    return std_residuals_corr
