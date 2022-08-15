@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from datetime import timedelta
 import time
+import requests, zipfile, io
 
 from typing import Iterable
 from typing import Dict
@@ -24,6 +25,7 @@ def download_stonk_prices(
     source: str = "yfinance",
     data_dir: str = "data",
     fname_prefix: str = "stonks",
+    write_dirty_csv: bool = False,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Downloads historical price data for given tickers from a given source.
 
@@ -98,7 +100,8 @@ def download_stonk_prices(
 
         df.to_csv(path_or_buf=file_path, header=True, index=True, na_rep="NaN")
 
-    _stonks_to_csv(stonks, is_cleaned=False)
+    if write_dirty_csv:
+        _stonks_to_csv(stonks, is_cleaned=False)
     _stonks_to_csv(clean_stonks, is_cleaned=True)
 
     return (stonks, clean_stonks)
@@ -347,3 +350,32 @@ def build_dataset_from_live_data_by_industry(
     # All columns must have equal length
     assert len(set([len(x) for x in dataset.values()])) == 1
     return pd.DataFrame(dataset)
+
+
+def get_market_factors_research_data(data_dir="data"):
+    req = requests.get(
+        "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip",
+        stream=True,
+    )
+    zip_file = zipfile.ZipFile(io.BytesIO(req.content))
+    zip_file.extractall(path=data_dir)
+
+    df = pd.read_csv(
+        os.path.join(data_dir, "F-F_Research_Data_5_Factors_2x3_daily.CSV"),
+        index_col=0,
+        header=2,
+    )
+    df.index = df.index.map(lambda x: datetime.strptime(str(x), "%Y%m%d"))
+
+    return df[["SMB", "HML", "RMW", "CMA"]]
+
+
+def get_market_indexes(
+    market_indexes=["vix", "oil", "sp500", "usd", "yield", "copper"]
+):
+    df_market_indexes = pd.DataFrame()
+    for mi in market_indexes:
+        df_market_indexes[mi] = get_stonk_data(
+            fname_prefix=mi, disable_filter=True
+        ).iloc[0]
+    return df_market_indexes

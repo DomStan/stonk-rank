@@ -146,14 +146,6 @@ def transform_features(
     scalers: Optional[Dict[str, sklearn.base.TransformerMixin]] = None,
     noise_level: Optional[float] = 0,
 ) -> Tuple[pd.DataFrame, Union[None, Dict[str, sklearn.base.TransformerMixin]],]:
-    def _map_industry(df_row):
-        return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
-
-    def _get_new_scaler(scaling):
-        if scaling == "minmax":
-            return MinMaxScaler()
-        elif scaling == "standard":
-            return StandardScaler()
 
     data_types = {
         "adf_pass_rate": np.float32,
@@ -184,25 +176,31 @@ def transform_features(
     df_copy.loc[:, "industry"] = df_copy.apply(_map_industry, axis=1)
     df_copy = df_copy.drop(columns="subindustry")
     df_copy["industry"] = df_copy["industry"].astype("category")
+    #
 
     # Arima forecast transform
     df_copy.loc[:, "arima_forecast"] = df_copy.apply(_normalize_arima_forecast, axis=1)
+    #
 
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
+    #
 
     # Feature cross
     df_copy.loc[:, "residual_inter"] = (
         df_copy["last_residual"] / df_copy["residual_mean_max"]
     )
+    #
 
+    # Additive random noise
     if noise_level > 0:
         df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, noise_level, n_x)
         df_copy.loc[:, "last_residual"] += np.random.normal(0, noise_level, n_x)
         df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, noise_level, n_x)
         df_copy.loc[:, "vix"] += np.random.normal(0, noise_level, n_x)
+    #
 
-    # Scale features
+    # Feature scalers fit
     if scalers is None:
         scalers = dict()
         scalers["adf_pass_rate"] = _get_new_scaler("minmax").fit(
@@ -211,16 +209,20 @@ def transform_features(
         scalers["vix"] = _get_new_scaler("standard").fit(
             df_copy["vix"].to_numpy().reshape(-1, 1)
         )
-
-    # ADF pass rate scaling
+    #
+    
+    # Feature scaling
+    ## ADF pass rate scaling
     scaler = scalers["adf_pass_rate"]
     df_copy.loc[:, "adf_pass_rate"] = scaler.transform(
         df_copy["adf_pass_rate"].to_numpy().reshape(-1, 1)
     )
+    ##
 
-    # Vix index scaling
+    ## Vix index scaling
     scaler = scalers["vix"]
     df_copy.loc[:, "vix"] = scaler.transform(df_copy["vix"].to_numpy().reshape(-1, 1))
+    ##
 
     return df_copy, scalers
 
@@ -235,3 +237,14 @@ def _normalize_arima_forecast(df_row):
         diff *= -1
 
     return diff
+
+
+def _map_industry(df_row):
+        return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
+
+    
+def _get_new_scaler(scaling):
+    if scaling == "minmax":
+        return MinMaxScaler()
+    elif scaling == "standard":
+        return StandardScaler()

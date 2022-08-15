@@ -4,12 +4,15 @@ from typing import Iterable
 from typing import NoReturn
 from typing import Optional
 from typing import Dict
+from typing import Any
+from typing import Tuple
 from numpy.typing import ArrayLike
 
 import numpy as np
 import pandas as pd
 
 import processing
+import preprocessing
 import utils
 
 from processing import DAYS_IN_TRADING_YEAR
@@ -65,6 +68,7 @@ def data_collection_rolling_pipeline(
         remove_industries=remove_industries,
     )
     industries = list(tickers["subindustry"].unique())
+    market_indexes = utils.get_market_indexes()
 
     data_range = range(
         stonk_prices.shape[1], total_backtest_days, -trading_interval_days
@@ -80,29 +84,32 @@ def data_collection_rolling_pipeline(
 
     for index_end in data_range:
         index_start = index_end - total_backtest_days
-        data_window = stonk_prices.iloc[:, index_start:index_end]
-        assert data_window.shape[1] == total_backtest_days
+        price_data_window = stonk_prices.iloc[:, index_start:index_end]
+        assert price_data_window.shape[1] == total_backtest_days
 
         if verbose:
             print(
                 "Period "
-                + str(data_window.columns[0])
+                + str(price_data_window.columns[0])
                 + " to "
-                + str(data_window.columns[-1])
+                + str(price_data_window.columns[-1])
             )
 
-        data_all_industries = []
+        collected_data_all_industries = []
         for industry in industries:
             tickers_by_industry = tickers[tickers["subindustry"] == industry]
-            data_window_by_industry = data_window[
-                data_window.index.isin(tickers_by_industry.index)
+            if len(tickers_by_industry) <= 1:
+                continue
+            price_data_window_by_industry = price_data_window[
+                price_data_window.index.isin(tickers_by_industry.index)
             ]
-            X, Y = processing.combine_stonk_pairs(data_window_by_industry)
+            X, Y = processing.combine_stonk_pairs(price_data_window_by_industry)
 
-            data = pd.DataFrame(
+            collected_data = pd.DataFrame(
                 _data_collection_step(
                     X=X,
                     Y=Y,
+                    market_indexes=market_indexes,
                     l_reg=l_reg,
                     l_roll=l_roll,
                     dt=dt,
@@ -115,27 +122,34 @@ def data_collection_rolling_pipeline(
                     trade_length_months=trade_length_months,
                 )
             )
+            
+            if len(collected_data) == 0:
+                continue
 
-            data["data_window_start"] = np.full(data.shape[0], X.columns[0])
-            data["subindustry"] = np.full(data.shape[0], industry)
+            collected_data["data_window_start"] = np.full(
+                collected_data.shape[0], X.columns[0]
+            )
+            collected_data["subindustry"] = np.full(collected_data.shape[0], industry)
 
-            data_all_industries.append(data)
+            collected_data_all_industries.append(collected_data)
 
             if verbose:
                 print(
                     "Industries "
-                    + str(len(data_all_industries))
+                    + str(len(collected_data_all_industries))
                     + "/"
                     + str(total_industries)
                 )
 
-        data_all_industries = pd.concat(data_all_industries, ignore_index=True)
+        collected_data_all_industries = pd.concat(
+            collected_data_all_industries, ignore_index=True
+        )
 
         filename = (
             "_".join(
                 [
-                    str(data_window.columns[0]),
-                    str(data_window.columns[-1]),
+                    str(price_data_window.columns[0]),
+                    str(price_data_window.columns[-1]),
                     str(l_reg),
                     str(l_roll),
                     str(dt),
@@ -156,7 +170,9 @@ def data_collection_rolling_pipeline(
 
         data_output_file_path = os.path.join(data_output_dir, filename)
 
-        data_all_industries.to_csv(data_output_file_path, header=True, index=False)
+        collected_data_all_industries.to_csv(
+            data_output_file_path, header=True, index=False
+        )
 
         total_data_windows -= 1
 
@@ -171,6 +187,7 @@ def data_collection_rolling_pipeline(
 def _data_collection_step(
     X: pd.DataFrame,
     Y: pd.DataFrame,
+    market_indexes: pd.DataFrame,
     l_reg: int,
     l_roll: int,
     dt: int,
@@ -218,8 +235,102 @@ def _data_collection_step(
     del X
     del Y
 
+    features = process_features_from_price_data(
+        X=X_until_T,
+        Y=Y_until_T,
+        market_indexes=market_indexes,
+        l_reg=l_reg,
+        l_roll=l_roll,
+        dt=dt,
+        last_residual_cutoff=last_residual_cutoff,
+        adf_pval_cutoff=adf_pval_cutoff,
+        adf_pass_rate_filter=adf_pass_rate_filter,
+        mean_max_residual_dt=mean_max_residual_dt,
+        arima_forecast_months=arima_forecast_months,
+        arima_eval_models=arima_eval_models,
+    )
+    
+    if len(features) == 0:
+        return output
+
+    ### Trade returns calculations
+    # True for trades where we buy X and short Y
+    buy_X = features["std_residuals"].iloc[:, -1] > 0
+
+    selected_trades_tickers = utils.separate_pair_index(features["std_residuals"].index)
+    X_from_T = X_from_T.loc[selected_trades_tickers["x"]]
+    Y_from_T = Y_from_T.loc[selected_trades_tickers["y"]]
+
+    trade_returns = processing.get_trades_returns(
+        prices_X=X_from_T.to_numpy(),
+        prices_Y=Y_from_T.to_numpy(),
+        betas_YX=features["betas_last"].to_numpy(),
+        buy_X=buy_X.to_numpy(),
+    )
+    trade_residuals = processing.get_trades_residuals(
+        prices_X=X_from_T.to_numpy(),
+        prices_Y=Y_from_T.to_numpy(),
+        betas_YX=features["betas_last"].to_numpy(),
+        intercepts_YX=features["intercepts_last"].to_numpy(),
+        means_YX=features["means"].to_numpy(),
+        stds_YX=features["stds"].to_numpy(),
+    )
+    ###
+
+    output_length = len(features["std_residuals"])
+    output["ticker_x"] = X_from_T.index
+    output["ticker_y"] = Y_from_T.index
+    output["trade_date"] = np.full(output_length, X_from_T.columns[0])
+
+    output["adf_pass_rate"] = features["adfs"][0].values.round(3)
+    output["last_residual"] = features["std_residuals"].iloc[:, -1].to_numpy().round(3)
+    output["beta"] = features["betas_last"][0].to_numpy().round(3)
+    output["intercept"] = features["intercepts_last"][0].to_numpy().round(3)
+    output["residual_mean_max"] = np.full(output_length, features["residuals_max_mean"])
+    output["betas_rsquared"] = features["beta_stability_rsquared_vals"][0].to_numpy().round(3)
+    output["arima_forecast"] = features["arima_forecasts"][0].to_numpy().round(3)
+
+    for corr_feature in features["market_correlations"].columns:
+        output[corr_feature] = features["market_correlations"].loc[:, corr_feature].to_numpy().round(3)
+
+    output["return_one_month"] = trade_returns[:, 1 * DAYS_IN_TRADING_MONTH]
+    output["residual_one_month"] = trade_residuals[:, 1 * DAYS_IN_TRADING_MONTH]
+    if trade_length_months > 1:
+        output["return_two_month"] = trade_returns[:, 2 * DAYS_IN_TRADING_MONTH]
+        output["residual_two_month"] = trade_residuals[:, 2 * DAYS_IN_TRADING_MONTH]
+    else:
+        output["return_two_month"] = np.full(output_length, np.nan)
+        output["residual_two_month"] = np.full(output_length, np.nan)
+
+    if trade_length_months > 2:
+        output["return_three_month"] = trade_returns[:, 3 * DAYS_IN_TRADING_MONTH]
+        output["residual_three_month"] = trade_residuals[:, 3 * DAYS_IN_TRADING_MONTH]
+    else:
+        output["return_three_month"] = np.full(output_length, np.nan)
+        output["residual_three_month"] = np.full(output_length, np.nan)
+
+    del features
+    return output
+
+
+def process_features_from_price_data(
+    X: pd.DataFrame,
+    Y: pd.DataFrame,
+    market_indexes: pd.DataFrame,
+    l_reg: int,
+    l_roll: int,
+    dt: int,
+    last_residual_cutoff: float,
+    adf_pval_cutoff: float,
+    adf_pass_rate_filter: float,
+    mean_max_residual_dt: float,
+    arima_forecast_months: int,
+    arima_eval_models: int,
+) -> Dict[str, ArrayLike]:
+    assert X.shape == Y.shape and len(X.shape) == 2
+
     residuals, betas, intercepts, dates_index = processing.get_rolling_residuals(
-        X=X_until_T, Y=Y_until_T, l_reg=l_reg, l_roll=l_roll, dt=dt
+        X=X, Y=Y, l_reg=l_reg, l_roll=l_roll, dt=dt
     )
 
     std_residuals, means, stds = processing.get_standardized_residuals(residuals)
@@ -240,8 +351,6 @@ def _data_collection_step(
     adfs, adfs_raw = processing.get_aggregate_adfs(
         residuals, betas=betas, cutoff=adf_pval_cutoff
     )
-    del adfs_raw
-    del residuals
 
     # Select betas and intercepts from the most recent regressions
     betas_last = processing.get_last_pairs(betas)
@@ -260,13 +369,16 @@ def _data_collection_step(
     if len(std_residuals) == 0:
         return {}
 
-    betas_last = betas_last.loc[std_residuals.index]
-    betas = betas.loc[std_residuals.index]
-    intercepts_last = intercepts_last.loc[std_residuals.index]
-    dates_index = dates_index.loc[std_residuals.index]
+    residuals = residuals.loc[adfs.index]
+    adfs_raw = adfs_raw.loc[adfs.index]
+    betas = betas.loc[adfs.index]
+    dates_index = dates_index.loc[adfs.index]
 
-    means = means.loc[std_residuals.index]
-    stds = stds.loc[std_residuals.index]
+    betas_last = betas_last.loc[adfs.index]
+    intercepts_last = intercepts_last.loc[adfs.index]
+
+    means = means.loc[adfs.index]
+    stds = stds.loc[adfs.index]
 
     ### Residuals mean-max calculations
     residuals_max_mean = processing.get_mean_residual_magnitude(
@@ -276,7 +388,7 @@ def _data_collection_step(
 
     ### Beta stability calculations
     beta_stability_rsquared_vals = processing.calculate_beta_stability_rsquared(
-        prices_X=X_until_T, prices_Y=Y_until_T, betas=betas, dates_index=dates_index
+        prices_X=X, prices_Y=Y, betas=betas, dates_index=dates_index
     )
     assert np.all(beta_stability_rsquared_vals.index == std_residuals.index)
     ###
@@ -289,57 +401,37 @@ def _data_collection_step(
     )
     ###
 
-    ### Trade returns calculations
-    # True for trades where we buy X and short Y
-    buy_X = std_residuals.iloc[:, -1] > 0
-
-    selected_trades_tickers = utils.separate_pair_index(std_residuals.index)
-    X_from_T = X_from_T.loc[selected_trades_tickers["x"]]
-    Y_from_T = Y_from_T.loc[selected_trades_tickers["y"]]
-
-    trade_returns = processing.get_trades_returns(
-        prices_X=X_from_T.to_numpy(),
-        prices_Y=Y_from_T.to_numpy(),
-        betas_YX=betas_last.to_numpy(),
-        buy_X=buy_X.to_numpy(),
+    ### Market correlations calculations
+    correlations_market_research = (
+        processing.get_correlation_with_historical_market_factors_research(
+            std_residuals=std_residuals, dates_index=dates_index
+        )
     )
-    trade_residuals = processing.get_trades_residuals(
-        prices_X=X_from_T.to_numpy(),
-        prices_Y=Y_from_T.to_numpy(),
-        betas_YX=betas_last.to_numpy(),
-        intercepts_YX=intercepts_last.to_numpy(),
-        means_YX=means.to_numpy(),
-        stds_YX=stds.to_numpy(),
+    correlations_market_indexes = processing.get_correlation_with_live_market_indexes(
+        std_residuals=std_residuals,
+        dates_index=dates_index,
+        market_indexes=market_indexes,
+    )
+
+    market_correlations = pd.concat(
+        (correlations_market_research, correlations_market_indexes), axis="columns"
     )
     ###
 
-    output_length = len(std_residuals)
-    output["ticker_x"] = X_from_T.index
-    output["ticker_y"] = Y_from_T.index
-    output["trade_date"] = np.full(output_length, X_from_T.columns[0])
-
-    output["adf_pass_rate"] = adfs[0].values.round(3)
-    output["last_residual"] = std_residuals.iloc[:, -1].to_numpy().round(3)
-    output["beta"] = betas_last[0].to_numpy().round(3)
-    output["intercept"] = intercepts_last[0].to_numpy().round(3)
-    output["residual_mean_max"] = np.full(output_length, residuals_max_mean)
-    output["betas_rsquared"] = beta_stability_rsquared_vals[0].to_numpy()
-    output["arima_forecast"] = arima_forecasts[0].to_numpy()
-
-    output["return_one_month"] = trade_returns[:, 1 * DAYS_IN_TRADING_MONTH]
-    output["residual_one_month"] = trade_residuals[:, 1 * DAYS_IN_TRADING_MONTH]
-    if trade_length_months > 1:
-        output["return_two_month"] = trade_returns[:, 2 * DAYS_IN_TRADING_MONTH]
-        output["residual_two_month"] = trade_residuals[:, 2 * DAYS_IN_TRADING_MONTH]
-    else:
-        output["return_two_month"] = np.full(output_length, np.nan)
-        output["residual_two_month"] = np.full(output_length, np.nan)
-
-    if trade_length_months > 2:
-        output["return_three_month"] = trade_returns[:, 3 * DAYS_IN_TRADING_MONTH]
-        output["residual_three_month"] = trade_residuals[:, 3 * DAYS_IN_TRADING_MONTH]
-    else:
-        output["return_three_month"] = np.full(output_length, np.nan)
-        output["residual_three_month"] = np.full(output_length, np.nan)
-
-    return output
+    return {
+        "residuals": residuals,
+        "std_residuals": std_residuals,
+        "betas": betas,
+        "betas_last": betas_last,
+        "intercepts": intercepts,
+        "intercepts_last": intercepts_last,
+        "adfs": adfs,
+        "adfs_raw": adfs_raw,
+        "means": means,
+        "stds": stds,
+        "dates_index": dates_index,
+        "residuals_max_mean": residuals_max_mean,
+        "beta_stability_rsquared_vals": beta_stability_rsquared_vals,
+        "arima_forecasts": arima_forecasts,
+        "market_correlations": market_correlations,
+    }
