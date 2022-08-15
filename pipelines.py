@@ -1,5 +1,4 @@
 import os
-import pickle
 
 from typing import Iterable
 from typing import NoReturn
@@ -11,8 +10,6 @@ from numpy.typing import ArrayLike
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
-import sklearn
 
 import processing
 import preprocessing
@@ -125,6 +122,9 @@ def data_collection_rolling_pipeline(
                     trade_length_months=trade_length_months,
                 )
             )
+            
+            if len(collected_data) == 0:
+                continue
 
             collected_data["data_window_start"] = np.full(
                 collected_data.shape[0], X.columns[0]
@@ -148,8 +148,8 @@ def data_collection_rolling_pipeline(
         filename = (
             "_".join(
                 [
-                    str(data_window.columns[0]),
-                    str(data_window.columns[-1]),
+                    str(price_data_window.columns[0]),
+                    str(price_data_window.columns[-1]),
                     str(l_reg),
                     str(l_roll),
                     str(dt),
@@ -249,6 +249,9 @@ def _data_collection_step(
         arima_forecast_months=arima_forecast_months,
         arima_eval_models=arima_eval_models,
     )
+    
+    if len(features) == 0:
+        return output
 
     ### Trade returns calculations
     # True for trades where we buy X and short Y
@@ -284,11 +287,11 @@ def _data_collection_step(
     output["beta"] = features["betas_last"][0].to_numpy().round(3)
     output["intercept"] = features["intercepts_last"][0].to_numpy().round(3)
     output["residual_mean_max"] = np.full(output_length, features["residuals_max_mean"])
-    output["betas_rsquared"] = features["beta_stability_rsquared_vals"][0].to_numpy()
-    output["arima_forecast"] = features["arima_forecasts"][0].to_numpy()
+    output["betas_rsquared"] = features["beta_stability_rsquared_vals"][0].to_numpy().round(3)
+    output["arima_forecast"] = features["arima_forecasts"][0].to_numpy().round(3)
 
     for corr_feature in features["market_correlations"].columns:
-        output[corr_feature] = features["market_correlations"].loc[:, corr_feature]
+        output[corr_feature] = features["market_correlations"].loc[:, corr_feature].to_numpy().round(3)
 
     output["return_one_month"] = trade_returns[:, 1 * DAYS_IN_TRADING_MONTH]
     output["residual_one_month"] = trade_residuals[:, 1 * DAYS_IN_TRADING_MONTH]
@@ -432,20 +435,3 @@ def process_features_from_price_data(
         "arima_forecasts": arima_forecasts,
         "market_correlations": market_correlations,
     }
-
-
-def train_production_xgb(
-    df: pd.DataFrame, params: Dict[str, Any], noise_level: float = 0
-) -> Tuple[xgb.XGBClassifier, sklearn.base.TransformerMixin]:
-    X_train, scalers = preprocessing.transform_features(df, noise_level=noise_level)
-    y_train = df["label"]
-
-    clf = xgb.XGBClassifier(**params)
-
-    clf.fit(X_train, y_train, eval_set=[(X_train, y_train)])
-    clf.save_model(os.path.join("data", "xgb_classifier.json"))
-
-    with open(os.path.join("data", "scalers.json"), "wb") as fp:
-        pickle.dump(scalers, fp)
-
-    return clf, scalers

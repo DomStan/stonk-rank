@@ -322,7 +322,7 @@ def get_mean_residual_magnitude(std_residuals: np.ndarray, dt: int) -> float:
     assert std_residuals.shape[1] >= dt
 
     # Take the absolute maximum for each day, over all tickers, mean over the results
-    mean_magnitude = np.round(np.abs(std_residuals[:, -dt:]).max(axis=0).mean(), 2)
+    mean_magnitude = np.round(np.abs(std_residuals[:, -dt:]).max(axis=0).mean(), 3)
 
     return mean_magnitude
 
