@@ -122,7 +122,7 @@ def data_collection_rolling_pipeline(
                     trade_length_months=trade_length_months,
                 )
             )
-            
+
             if len(collected_data) == 0:
                 continue
 
@@ -249,7 +249,7 @@ def _data_collection_step(
         arima_forecast_months=arima_forecast_months,
         arima_eval_models=arima_eval_models,
     )
-    
+
     if len(features) == 0:
         return output
 
@@ -287,11 +287,15 @@ def _data_collection_step(
     output["beta"] = features["betas_last"][0].to_numpy().round(3)
     output["intercept"] = features["intercepts_last"][0].to_numpy().round(3)
     output["residual_mean_max"] = np.full(output_length, features["residuals_max_mean"])
-    output["betas_rsquared"] = features["beta_stability_rsquared_vals"][0].to_numpy().round(3)
+    output["betas_rsquared"] = (
+        features["beta_stability_rsquared_vals"][0].to_numpy().round(3)
+    )
     output["arima_forecast"] = features["arima_forecasts"][0].to_numpy().round(3)
 
     for corr_feature in features["market_correlations"].columns:
-        output[corr_feature] = features["market_correlations"].loc[:, corr_feature].to_numpy().round(3)
+        output[corr_feature] = (
+            features["market_correlations"].loc[:, corr_feature].to_numpy().round(3)
+        )
 
     output["return_one_month"] = trade_returns[:, 1 * DAYS_IN_TRADING_MONTH]
     output["residual_one_month"] = trade_residuals[:, 1 * DAYS_IN_TRADING_MONTH]
