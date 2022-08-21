@@ -6,7 +6,7 @@ from sklearn.metrics import average_precision_score
 from sklearn.metrics import roc_auc_score
 
 
-def returns_on_predictions(df):
+def returns_on_predictions(df, verbose=False):
     def _classify_prediction(example):
         true_label = example["label"]
         prediction = example["prediction"]
@@ -23,10 +23,10 @@ def returns_on_predictions(df):
     evaluation_metrics = {}
     df["result"] = df.apply(_classify_prediction, axis=1)
 
-    print("\nTotals:")
-    print(df[["result", "prediction"]].groupby("result").count())
-
-    print("\nMeans:")
+    if verbose:
+        print("\nTotals:")
+        print(df[["result", "prediction"]].groupby("result").count())
+        print("\nMeans:")
     mean_returns = (
         df[
             [
@@ -40,7 +40,8 @@ def returns_on_predictions(df):
         .mean()
     )
 
-    print(mean_returns)
+    if verbose:
+        print(mean_returns)
     evaluation_metrics["fp_ret_1mo"] = np.round(
         mean_returns.loc["FP"]["return_one_month"], 3
     )
@@ -51,7 +52,8 @@ def returns_on_predictions(df):
         mean_returns.loc["FP"]["return_three_month"], 3
     )
 
-    print("\nStd:")
+    if verbose:
+        print("\nStd:")
     mean_returns_stds = (
         df[
             [
@@ -64,7 +66,8 @@ def returns_on_predictions(df):
         .groupby("result")
         .std()
     )
-    print(mean_returns_stds)
+    if verbose:
+        print(mean_returns_stds)
     evaluation_metrics["fp_ret_std_1mo"] = np.round(
         mean_returns_stds.loc["FP"]["return_one_month"], 3
     )
@@ -75,12 +78,14 @@ def returns_on_predictions(df):
         mean_returns_stds.loc["FP"]["return_three_month"], 3
     )
 
-    print("\nPositive predictions:")
-    print("\nMeans:")
+    if verbose:
+        print("\nPositive predictions:")
+        print("\nMeans:")
     positive_preds_means = df[df.prediction == 1][
         ["return_one_month", "return_two_month", "return_three_month"]
     ].mean()
-    print(positive_preds_means)
+    if verbose:
+        print(positive_preds_means)
     evaluation_metrics["pos_pred_ret_1mo"] = np.round(
         positive_preds_means["return_one_month"], 3
     )
@@ -91,11 +96,13 @@ def returns_on_predictions(df):
         positive_preds_means["return_three_month"], 3
     )
 
-    print("\nStd:")
+    if verbose:
+        print("\nStd:")
     positive_preds_stds = df[df.prediction == 1][
         ["return_one_month", "return_two_month", "return_three_month"]
     ].std()
-    print(positive_preds_stds)
+    if verbose:
+        print(positive_preds_stds)
     evaluation_metrics["pos_pred_ret_std_1mo"] = np.round(
         positive_preds_stds["return_one_month"], 3
     )
@@ -110,7 +117,7 @@ def returns_on_predictions(df):
 
 
 def performance_summary(
-    y_score: np.array, y_preds: np.array, y_true: np.array, auc_cutoff: float
+    y_score: np.array, y_preds: np.array, y_true: np.array, auc_cutoff: float, verbose=False
 ) -> pd.Series:
     evaluation_metrics = {}
     precision = precision_score(y_true, y_preds, zero_division=0)
@@ -120,11 +127,12 @@ def performance_summary(
     else:
         roc = 0
 
-    print("Precision:", precision)
-    print("PR-AUC/AP score:", avg_precision)
-    print("ROC-AUC score:", roc)
-    print("Total positive predictions:", y_preds.sum())
-    print("Total positive labels:", y_true.sum())
+    if verbose:
+        print("Precision:", precision)
+        print("PR-AUC/AP score:", avg_precision)
+        print("ROC-AUC score:", roc)
+        print("Total positive predictions:", y_preds.sum())
+        print("Total positive labels:", y_true.sum())
 
     evaluation_metrics["precision"] = np.round(precision, 3)
     evaluation_metrics["ap"] = np.round(avg_precision, 3)

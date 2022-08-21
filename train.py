@@ -18,6 +18,7 @@ from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 
 import preprocessing
+import evaluate
 
 
 def model_hp_search(

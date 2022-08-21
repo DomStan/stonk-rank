@@ -14,10 +14,235 @@ import pandas as pd
 import processing
 import preprocessing
 import utils
+import train
 
 from processing import DAYS_IN_TRADING_YEAR
 from processing import DAYS_IN_TRADING_MONTH
 from processing import DAYS_IN_TRADING_WEEK
+
+
+def model_validation_pipeline(
+    dataset: pd.DataFrame,
+    filename_prefix: str,
+    data_window_train_size: int,
+    data_window_test_size: int,
+    data_window_gap_size: int,
+    hp_model_evals: int,
+    top_n_best_trades: int = 5,
+    min_industry_confidence: float = 0.4,
+    random_noise: float = 0.005,
+    hp_nth_best_model: int = 10,
+    data_dir: str = "data",
+    outputs_dir: str = "experiments",
+) -> pd.DataFrame:
+    random_state = np.random.randint(133742069)
+    pipeline_dir = os.path.join(data_dir, outputs_dir)
+
+    # Total data window size is the size of the standard data window for validation/training plus another gap and test size for final validation
+    total_data_window_size = (
+        data_window_train_size + data_window_gap_size + data_window_test_size
+    ) + (data_window_gap_size + data_window_test_size)
+
+    dates_sorted = np.sort(dataset["trade_date"].unique())
+    total_date_count = len(dates_sorted)
+
+    assert total_date_count >= total_data_window_size
+
+    data_windows = range(total_date_count, total_data_window_size - 1, -1)
+
+    print("Total data windows: " + str(len(list(data_windows))))
+
+    all_evaluation_results = {}
+    for index_end in data_windows:
+        index_start = index_end - total_data_window_size
+
+        current_data_window = dates_sorted[index_start:index_end]
+
+        assert len(current_data_window) == total_data_window_size
+
+        print(
+            "Period "
+            + str(current_data_window[0])
+            + " to "
+            + str(current_data_window[-1])
+        )
+
+        # Separating validation/test data windows
+        dataset_window_test = (
+            dataset[dataset.trade_date.isin(current_data_window)]
+            .copy()
+            .sample(frac=1, random_state=random_state)
+        )
+
+        current_data_window_validation = current_data_window[
+            : -(data_window_gap_size + data_window_test_size)
+        ]
+
+        assert len(current_data_window_validation) + (
+            data_window_gap_size + data_window_test_size
+        ) == len(current_data_window)
+
+        dataset_window_validation = (
+            dataset[
+                dataset.trade_date.isin(current_data_window_validation)
+            ]
+            .copy()
+            .sample(frac=1, random_state=random_state)
+        )
+
+        validation_splits = preprocessing.split_data(
+            dataset_window_validation,
+            date_count_train=data_window_train_size,
+            date_count_valid=data_window_test_size,
+            date_count_gap=data_window_gap_size,
+            random_state=random_state,
+        )
+
+        test_splits = preprocessing.split_data(
+            dataset_window_test,
+            date_count_train=data_window_train_size,
+            date_count_valid=data_window_test_size,
+            date_count_gap=data_window_gap_size,
+            random_state=random_state,
+        )
+
+        assert all(
+            [
+                len(validation_splits["validation"].trade_date.unique())
+                == len(test_splits["validation"].trade_date.unique()),
+                len(validation_splits["train"].trade_date.unique())
+                == len(test_splits["train"].trade_date.unique()),
+            ]
+        )
+
+        # Hyperparameter tuning/search, outputs an artifact CSV with results, which is not used
+        hp_trial_name = "validation_{}-{}_until_{}".format(
+            current_data_window_validation[0],
+            current_data_window_validation[-1],
+            current_data_window[-1],
+        )
+        df_trial_results = train.model_hp_search(
+            validation_splits,
+            n_evals=hp_model_evals,
+            trial_name=hp_trial_name,
+            additive_random_noise=random_noise,
+            write_csv=True,
+            random_state=random_state,
+            data_dir=data_dir,
+            output_dir=outputs_dir,
+        )
+
+        selected_hps = utils.select_nth_best_trial(
+            df_trial_results, nth_best=hp_nth_best_model
+        )
+
+        model_params = {
+            "colsample_bylevel": 1,
+            "learning_rate": 0.1,
+            "subsample": 1,
+            "tree_method": "hist",
+            "enable_categorical": True,
+            "max_cat_to_onehot": 1,
+            "eval_metric": ["logloss"],
+            "random_state": random_state,
+        }
+        model_params.update(selected_hps)
+
+        # Live/production model training with given hyperparameters, outputs model and scalers JSONs
+        clf_test, scalers_test = train.train_production_xgb(
+            dataset=test_splits["train"],
+            params=model_params,
+            noise_level=random_noise,
+            verbose=False,
+            data_dir=pipeline_dir,
+        )
+
+        # Live/production model evaluation on test set
+        live_model = predict.XGBStonkModel(model_dir=pipeline_dir)
+
+        predictions, test_dataset_processed = live_model.predict(
+            test_splits["validation"]
+        )
+
+        # Model, scalers saving/loading correctly tests, get predictions
+        # assert live_model._model == clf_test
+        live_model._model = clf_test
+        live_model._scalers = scalers_test
+        predictions_fortest, _ = live_model.predict(test_splits["validation"])
+        assert np.all(predictions == predictions_fortest)
+
+        df_test_scores = test_splits["validation"].copy()
+        df_test_scores["score"] = predictions
+        df_test_scores["prediction"] = predictions > 0.5
+
+        # Aggregate evaluation results, as a whole and by each trade date (as separate rows)
+        current_period_trade_dates = np.sort(df_test_scores.trade_date.unique())
+        current_evaluation_period_row_prefix = "_".join([str(current_period_trade_dates[0]), str(current_period_trade_dates[-1])])
+        current_evaluation_results = {}
+
+        _, results = evaluate.returns_on_predictions(df_test_scores)
+        current_evaluation_results.update(results)
+
+        results = evaluate.performance_summary(
+            y_score=df_test_scores["score"],
+            y_preds=df_test_scores["prediction"],
+            y_true=df_test_scores["label"],
+            auc_cutoff=0.5,
+        )
+        current_evaluation_results.update(results)
+
+        results = evaluate.performance_on_trading_use_case(
+            df=df_test_scores,
+            top_n_trades=top_n_best_trades,
+            min_industry_score=min_industry_confidence,
+        )
+        current_evaluation_results.update(results)
+ 
+        all_evaluation_results[
+            current_evaluation_period_row_prefix + "_all"
+        ] = pd.Series(current_evaluation_results)
+
+        # By trade date
+        for date, trades in df_test_scores.groupby("trade_date"):
+            current_evaluation_results = {}
+
+            _, results = evaluate.returns_on_predictions(trades)
+            current_evaluation_results.update(results)
+
+            results = evaluate.performance_summary(
+                y_score=trades["score"],
+                y_preds=trades["prediction"],
+                y_true=trades["label"],
+                auc_cutoff=0.5,
+            )
+            current_evaluation_results.update(results)
+
+            results = evaluate.performance_on_trading_use_case(
+                df=trades,
+                top_n_trades=top_n_best_trades,
+                min_industry_score=min_industry_confidence,
+            )
+            current_evaluation_results.update(results)
+
+            current_evaluation_results = pd.Series(current_evaluation_results)
+            all_evaluation_results[
+                current_evaluation_period_row_prefix + "_" + str(date)
+            ] = current_evaluation_results
+
+    all_evaluation_results = pd.DataFrame(all_evaluation_results).T
+    results_filename = "{}_validation_pipeline_{}.csv".format(filename_prefix, "_".join([
+        str(data_window_train_size),
+        str(data_window_test_size),
+        str(data_window_gap_size),
+        str(hp_model_evals),
+        str(top_n_best_trades),
+        str(min_industry_confidence),
+        str(random_noise),
+        str(hp_nth_best_model),
+    ]))
+    
+    all_evaluation_results.to_csv(os.path.join(pipeline_dir, "validation", results_filename), index=True, header=True)
+    return all_evaluation_results
 
 
 def data_collection_rolling_pipeline(
