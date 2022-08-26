@@ -49,9 +49,9 @@ _INDUSTRY_MAPPINGS = {
 
 def split_data(
     df: pd.DataFrame,
+    date_count_train: int,
     date_count_valid: int,
     date_count_gap: int,
-    date_remove_train: int = 0,
     random_state: int = None,
 ) -> Dict[str, pd.DataFrame]:
     df_copy = df.copy()
@@ -63,26 +63,24 @@ def split_data(
 
     total_date_count = len(dates_sorted)
 
-    date_count_train = total_date_count - date_count_valid - date_count_gap
+    total_date_count_train = total_date_count - date_count_valid - date_count_gap
 
-    assert (
-        date_count_train > 0
-        and sum([date_count_train, date_count_valid, date_count_gap])
-        <= total_date_count
-    )
+    assert total_date_count_train > 0
+
+    assert date_count_train > 0 and date_count_train <= total_date_count_train
 
     dates_valid = dates_sorted[
-        date_count_train
-        + date_count_gap : date_count_train
+        total_date_count_train
+        + date_count_gap : total_date_count_train
         + date_count_gap
         + date_count_valid
     ]
-    dates_train = dates_sorted[date_remove_train:date_count_train]
+    dates_train = dates_sorted[:total_date_count_train]
+    dates_train = dates_train[-date_count_train:]
 
-    assert (
-        len(dates_valid) == date_count_valid
-        and len(dates_train) == date_count_train - date_remove_train
-    )
+    assert len(dates_valid) == date_count_valid
+    assert len(dates_train) == date_count_train
+
     assert all([x > dates_train[-1] for x in dates_valid])
     assert all([x < dates_valid[0] for x in dates_train])
 
@@ -210,7 +208,7 @@ def transform_features(
             df_copy["vix"].to_numpy().reshape(-1, 1)
         )
     #
-    
+
     # Feature scaling
     ## ADF pass rate scaling
     scaler = scalers["adf_pass_rate"]
@@ -240,9 +238,9 @@ def _normalize_arima_forecast(df_row):
 
 
 def _map_industry(df_row):
-        return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
+    return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
 
-    
+
 def _get_new_scaler(scaling):
     if scaling == "minmax":
         return MinMaxScaler()

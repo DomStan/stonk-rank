@@ -379,3 +379,17 @@ def get_market_indexes(
             fname_prefix=mi, disable_filter=True
         ).iloc[0]
     return df_market_indexes
+
+def select_nth_best_trial(df_trials: pd.DataFrame, nth_best: int) -> Dict[str, float]:
+    assert nth_best > 0 and nth_best <= len(df_trials)
+    selected_trial = dict(
+        df_trials.iloc[nth_best - 1].drop(
+            index=["f1_score", "precision", "ap", "auc", "pos_preds"]
+        )
+    )
+    # TODO: deal if the keys don't exist
+    selected_trial["n_estimators"] = int(selected_trial["n_estimators"])
+    selected_trial["max_delta_step"] = int(selected_trial["max_delta_step"])
+    selected_trial["max_depth"] = int(selected_trial["max_depth"])
+    selected_trial["min_child_weight"] = int(selected_trial["min_child_weight"])
+    return selected_trial

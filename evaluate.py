@@ -1,11 +1,12 @@
 import numpy as np
+import pandas as pd
 
 from sklearn.metrics import precision_score
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import roc_auc_score
 
 
-def returns_on_predictions(df, y_preds):
+def returns_on_predictions(df, verbose=False):
     def _classify_prediction(example):
         true_label = example["label"]
         prediction = example["prediction"]
@@ -19,14 +20,14 @@ def returns_on_predictions(df, y_preds):
         elif true_label == 0 and prediction == 1:
             return "FP"
 
-    df["prediction"] = y_preds
+    evaluation_metrics = {}
     df["result"] = df.apply(_classify_prediction, axis=1)
 
-    print("\nTotals:")
-    print(df[["result", "prediction"]].groupby("result").count())
-
-    print("\nMeans:")
-    print(
+    if verbose:
+        print("\nTotals:")
+        print(df[["result", "prediction"]].groupby("result").count())
+        print("\nMeans:")
+    mean_returns = (
         df[
             [
                 "result",
@@ -39,8 +40,21 @@ def returns_on_predictions(df, y_preds):
         .mean()
     )
 
-    print("\nStds:")
-    print(
+    if verbose:
+        print(mean_returns)
+    evaluation_metrics["fp_ret_1mo"] = np.round(
+        mean_returns.loc["FP"]["return_one_month"], 3
+    )
+    evaluation_metrics["fp_ret_2mo"] = np.round(
+        mean_returns.loc["FP"]["return_two_month"], 3
+    )
+    evaluation_metrics["fp_ret_3mo"] = np.round(
+        mean_returns.loc["FP"]["return_three_month"], 3
+    )
+
+    if verbose:
+        print("\nStd:")
+    mean_returns_stds = (
         df[
             [
                 "result",
@@ -52,26 +66,60 @@ def returns_on_predictions(df, y_preds):
         .groupby("result")
         .std()
     )
-
-    print("\nPositive predictions:")
-    print("\nMeans:")
-    print(
-        df[df.prediction == 1][
-            ["return_one_month", "return_two_month", "return_three_month"]
-        ].mean()
+    if verbose:
+        print(mean_returns_stds)
+    evaluation_metrics["fp_ret_std_1mo"] = np.round(
+        mean_returns_stds.loc["FP"]["return_one_month"], 3
+    )
+    evaluation_metrics["fp_ret_std_2mo"] = np.round(
+        mean_returns_stds.loc["FP"]["return_two_month"], 3
+    )
+    evaluation_metrics["fp_ret_std_3mo"] = np.round(
+        mean_returns_stds.loc["FP"]["return_three_month"], 3
     )
 
-    print("\nStds:")
-    print(
-        df[df.prediction == 1][
-            ["return_one_month", "return_two_month", "return_three_month"]
-        ].std()
+    if verbose:
+        print("\nPositive predictions:")
+        print("\nMeans:")
+    positive_preds_means = df[df.prediction == 1][
+        ["return_one_month", "return_two_month", "return_three_month"]
+    ].mean()
+    if verbose:
+        print(positive_preds_means)
+    evaluation_metrics["pos_pred_ret_1mo"] = np.round(
+        positive_preds_means["return_one_month"], 3
+    )
+    evaluation_metrics["pos_pred_ret_2mo"] = np.round(
+        positive_preds_means["return_two_month"], 3
+    )
+    evaluation_metrics["pos_pred_ret_3mo"] = np.round(
+        positive_preds_means["return_three_month"], 3
     )
 
-    return df
+    if verbose:
+        print("\nStd:")
+    positive_preds_stds = df[df.prediction == 1][
+        ["return_one_month", "return_two_month", "return_three_month"]
+    ].std()
+    if verbose:
+        print(positive_preds_stds)
+    evaluation_metrics["pos_pred_ret_std_1mo"] = np.round(
+        positive_preds_stds["return_one_month"], 3
+    )
+    evaluation_metrics["pos_pred_ret_std_2mo"] = np.round(
+        positive_preds_stds["return_two_month"], 3
+    )
+    evaluation_metrics["pos_pred_ret_std_3mo"] = np.round(
+        positive_preds_stds["return_three_month"], 3
+    )
+
+    return df, pd.Series(evaluation_metrics)
 
 
-def performance_summary(y_score, y_preds, y_true, auc_cutoff=0.6):
+def performance_summary(
+    y_score: np.array, y_preds: np.array, y_true: np.array, auc_cutoff: float, verbose=False
+) -> pd.Series:
+    evaluation_metrics = {}
     precision = precision_score(y_true, y_preds, zero_division=0)
     avg_precision = average_precision_from_cutoff(y_true, y_score, auc_cutoff)
     if np.any(y_true):
@@ -79,37 +127,87 @@ def performance_summary(y_score, y_preds, y_true, auc_cutoff=0.6):
     else:
         roc = 0
 
-    print("Precision:", precision)
-    print("PR-AUC/AP score:", avg_precision)
-    print("ROC-AUC score:", roc)
-    print("Total positive predictions:", y_preds.sum())
+    if verbose:
+        print("Precision:", precision)
+        print("PR-AUC/AP score:", avg_precision)
+        print("ROC-AUC score:", roc)
+        print("Total positive predictions:", y_preds.sum())
+        print("Total positive labels:", y_true.sum())
+
+    evaluation_metrics["precision"] = np.round(precision, 3)
+    evaluation_metrics["ap"] = np.round(avg_precision, 3)
+    evaluation_metrics["roc"] = np.round(roc, 3)
+    evaluation_metrics["positive_preds"] = int(y_preds.sum())
+    evaluation_metrics["positive_labels"] = int(y_true.sum())
+
+    return pd.Series(evaluation_metrics)
 
 
-def performance_on_slice(df, y_score, y_preds, on_slice, top_ten):
+def performance_on_slice(df: pd.DataFrame, on_slice: str, auc_cutoff=0.5) -> None:
     def _performance_summary(_df):
         print("\n", _df[on_slice].iloc[0], ":")
-        if top_ten:
-            top_scores = _df.sort_values("score", ascending=False).iloc[:10]
-            top_scores["prediction"] = np.ones(len(top_scores))
-            performance_summary(
-                top_scores["score"],
-                top_scores["prediction"],
-                top_scores["label"],
-            )
-        else:
-            performance_summary(_df["score"], _df["prediction"], _df["label"])
-
-    df["prediction"] = y_preds
-    df["score"] = y_score
+        performance_summary(_df["score"], _df["prediction"], _df["label"], auc_cutoff)
 
     df[[on_slice, "prediction", "score", "label"]].groupby(on_slice).apply(
         _performance_summary
     )
 
 
-def average_precision_from_cutoff(y_true, y_score, cutoff):
+def average_precision_from_cutoff(
+    y_true: np.array, y_score: np.array, cutoff: float
+) -> float:
     # precision, recall, thresholds = precision_recall_curve(y_true, y_score)
     selected_preds = y_score >= cutoff
     if selected_preds.sum() == 0:
         return 0
     return average_precision_score(y_true[selected_preds], y_score[selected_preds])
+
+
+def performance_on_trading_use_case(
+    df: pd.DataFrame, top_n_trades: int, min_industry_score: float
+) -> pd.Series:
+    evaluation_metrics = {}
+
+    for name, group in df[
+        [
+            "subindustry",
+            "score",
+            "label",
+            "return_one_month",
+            "return_two_month",
+            "return_three_month",
+        ]
+    ].groupby("subindustry"):
+        total_trades = len(group)
+        if total_trades > 0:
+            selected_group = (
+                group[group.score >= min_industry_score]
+                .sort_values(by="score", ascending=False)
+                .iloc[:top_n_trades]
+            )
+            short_name = name[:5] + name[-5:]
+            selected_trades = len(selected_group)
+
+            evaluation_metrics["{}_ntrades".format(short_name)] = int(selected_trades)
+
+            evaluation_metrics[
+                "{}_top{}_ret_1mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_one_month"].mean(), 3)
+            evaluation_metrics[
+                "{}_top{}_ret_2mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_two_month"].mean(), 3)
+            evaluation_metrics[
+                "{}_top{}_ret_3mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_three_month"].mean(), 3)
+
+            evaluation_metrics[
+                "{}_top{}_ret_std_1mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_one_month"].std(), 3)
+            evaluation_metrics[
+                "{}_top{}_ret_std_2mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_two_month"].std(), 3)
+            evaluation_metrics[
+                "{}_top{}_ret_std_3mo".format(short_name, top_n_trades)
+            ] = np.round(selected_group["return_three_month"].std(), 3)
+
+    return pd.Series(evaluation_metrics)
