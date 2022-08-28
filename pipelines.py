@@ -15,6 +15,8 @@ import processing
 import preprocessing
 import utils
 import train
+import predict
+import evaluate
 
 from processing import DAYS_IN_TRADING_YEAR
 from processing import DAYS_IN_TRADING_MONTH
@@ -34,6 +36,7 @@ def model_validation_pipeline(
     hp_nth_best_model: int = 10,
     data_dir: str = "data",
     outputs_dir: str = "experiments",
+    verbose: bool = False
 ) -> pd.DataFrame:
     random_state = np.random.randint(133742069)
     pipeline_dir = os.path.join(data_dir, outputs_dir)
@@ -48,7 +51,7 @@ def model_validation_pipeline(
 
     assert total_date_count >= total_data_window_size
 
-    data_windows = range(total_date_count, total_data_window_size - 1, -1)
+    data_windows = range(total_date_count, total_data_window_size - 1, -2)
 
     print("Total data windows: " + str(len(list(data_windows))))
 
@@ -83,9 +86,7 @@ def model_validation_pipeline(
         ) == len(current_data_window)
 
         dataset_window_validation = (
-            dataset[
-                dataset.trade_date.isin(current_data_window_validation)
-            ]
+            dataset[dataset.trade_date.isin(current_data_window_validation)]
             .copy()
             .sample(frac=1, random_state=random_state)
         )
@@ -114,6 +115,14 @@ def model_validation_pipeline(
                 == len(test_splits["train"].trade_date.unique()),
             ]
         )
+        
+        if verbose:
+            print("Validation split:")
+            print(np.sort(validation_splits["train"].trade_date.unique()))
+            print(np.sort(validation_splits["validation"].trade_date.unique()))
+            print("Test split:")
+            print(np.sort(test_splits["train"].trade_date.unique()))
+            print(np.sort(test_splits["validation"].trade_date.unique()))
 
         # Hyperparameter tuning/search, outputs an artifact CSV with results, which is not used
         hp_trial_name = "validation_{}-{}_until_{}".format(
@@ -177,7 +186,9 @@ def model_validation_pipeline(
 
         # Aggregate evaluation results, as a whole and by each trade date (as separate rows)
         current_period_trade_dates = np.sort(df_test_scores.trade_date.unique())
-        current_evaluation_period_row_prefix = "_".join([str(current_period_trade_dates[0]), str(current_period_trade_dates[-1])])
+        current_evaluation_period_row_prefix = "_".join(
+            [str(current_period_trade_dates[0]), str(current_period_trade_dates[-1])]
+        )
         current_evaluation_results = {}
 
         _, results = evaluate.returns_on_predictions(df_test_scores)
@@ -197,7 +208,7 @@ def model_validation_pipeline(
             min_industry_score=min_industry_confidence,
         )
         current_evaluation_results.update(results)
- 
+
         all_evaluation_results[
             current_evaluation_period_row_prefix + "_all"
         ] = pd.Series(current_evaluation_results)
@@ -230,18 +241,27 @@ def model_validation_pipeline(
             ] = current_evaluation_results
 
     all_evaluation_results = pd.DataFrame(all_evaluation_results).T
-    results_filename = "{}_validation_pipeline_{}.csv".format(filename_prefix, "_".join([
-        str(data_window_train_size),
-        str(data_window_test_size),
-        str(data_window_gap_size),
-        str(hp_model_evals),
-        str(top_n_best_trades),
-        str(min_industry_confidence),
-        str(random_noise),
-        str(hp_nth_best_model),
-    ]))
-    
-    all_evaluation_results.to_csv(os.path.join(pipeline_dir, "validation", results_filename), index=True, header=True)
+    results_filename = "{}_validation_pipeline_{}.csv".format(
+        filename_prefix,
+        "_".join(
+            [
+                str(data_window_train_size),
+                str(data_window_test_size),
+                str(data_window_gap_size),
+                str(hp_model_evals),
+                str(top_n_best_trades),
+                str(min_industry_confidence),
+                str(random_noise),
+                str(hp_nth_best_model),
+            ]
+        ),
+    )
+
+    all_evaluation_results.to_csv(
+        os.path.join(pipeline_dir, "validation", results_filename),
+        index=True,
+        header=True,
+    )
     return all_evaluation_results
 
 

@@ -380,6 +380,7 @@ def get_market_indexes(
         ).iloc[0]
     return df_market_indexes
 
+
 def select_nth_best_trial(df_trials: pd.DataFrame, nth_best: int) -> Dict[str, float]:
     assert nth_best > 0 and nth_best <= len(df_trials)
     selected_trial = dict(
