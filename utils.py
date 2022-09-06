@@ -16,6 +16,43 @@ import numpy as np
 import yfinance as yf
 
 
+_SUBINDUSTRY_MAPPINGS = {
+    "chemicals": "materials",
+    "construction_materials": "materials",
+    "containers_and_packaging": "materials",
+    "metals_and_mining": "materials",
+    "paper_and_forest_products": "materials",
+    #
+    "capital_goods": "industrials",
+    "commercial_and_professional_services": "industrials",
+    "transportation": "industrials",
+    #
+    "automobiles_and_components": "consumer_discretionary",
+    "consumer_durables_and_apparel": "consumer_discretionary",
+    "consumer_services": "consumer_discretionary",
+    "retailing": "consumer_discretionary",
+    #
+    "health_care_equipment_and_services": "health_care",
+    "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
+    #
+    "banks": "financials",
+    "diversified_financials": "financials",
+    "insurance": "financials",
+    #
+    "software_and_services": "information_technology",
+    "technology_hardware_and_equipment": "information_technology",
+    "semiconductors_and_semiconductor_equipment": "information_technology",
+    #
+    "telecommunication_services": "communication_services",
+    "media_and_entertainment": "communication_services",
+    #
+    "energy": "energy",
+    "utilities": "utilities",
+    "real_estate": "real_estate",
+    "consumer_staples": "consumer_staples",
+}
+
+
 def download_stonk_prices(
     tickers: Iterable[str],
     period_years: float,
@@ -321,6 +358,7 @@ def build_dataset_from_live_data_by_industry(
     adfs: pd.DataFrame,
     subindustry: str,
     mean_max_residual: float,
+    residual_quantile: float,
     vix_index: float,
     betas_stability_rsquared: pd.DataFrame,
     arima_forecasts: pd.DataFrame,
@@ -342,14 +380,18 @@ def build_dataset_from_live_data_by_industry(
     dataset["adf_pass_rate"] = adfs.to_numpy().ravel().round(3)
     dataset["last_residual"] = std_residuals.to_numpy()[:, -1].round(3)
     dataset["residual_mean_max"] = np.full(output_length, mean_max_residual)
+    dataset["residual_quantile"] = np.full(output_length, residual_quantile)
     dataset["subindustry"] = np.full(output_length, subindustry)
+    dataset["industry"] = np.full(output_length, _SUBINDUSTRY_MAPPINGS[subindustry])
     dataset["vix"] = np.full(output_length, vix_index)
     dataset["betas_rsquared"] = betas_stability_rsquared[0].to_numpy()
     dataset["arima_forecast"] = arima_forecasts[0].to_numpy()
 
     # All columns must have equal length
     assert len(set([len(x) for x in dataset.values()])) == 1
-    return pd.DataFrame(dataset)
+    dataset = pd.DataFrame(dataset)
+    dataset.loc[:, "arima_forecast_normalized"] = dataset.apply(normalize_arima_forecast, axis=1)
+    return dataset
 
 
 def get_market_factors_research_data(data_dir="data"):
@@ -383,14 +425,26 @@ def get_market_indexes(
 
 def select_nth_best_trial(df_trials: pd.DataFrame, nth_best: int) -> Dict[str, float]:
     assert nth_best > 0 and nth_best <= len(df_trials)
-    selected_trial = dict(
-        df_trials.iloc[nth_best - 1].drop(
-            index=["f1_score", "precision", "ap", "auc", "pos_preds"]
-        )
-    )
+    selected_trial = dict(df_trials.iloc[nth_best - 1])
     # TODO: deal if the keys don't exist
     selected_trial["n_estimators"] = int(selected_trial["n_estimators"])
     selected_trial["max_delta_step"] = int(selected_trial["max_delta_step"])
     selected_trial["max_depth"] = int(selected_trial["max_depth"])
     selected_trial["min_child_weight"] = int(selected_trial["min_child_weight"])
+    selected_trial["train_window_size"] = int(selected_trial["train_window_size"])
     return selected_trial
+
+def map_subindustries_to_industries(df_row):
+    return _SUBINDUSTRY_MAPPINGS[df_row["subindustry"]]
+
+
+def normalize_arima_forecast(df_row):
+    residual = df_row["last_residual"]
+    arima = df_row["arima_forecast"]
+
+    diff = np.absolute(residual - arima)
+
+    if (residual >= 0 and arima > residual) or (residual < 0 and arima < residual):
+        diff *= -1
+
+    return diff

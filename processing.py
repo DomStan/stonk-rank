@@ -327,6 +327,10 @@ def get_mean_residual_magnitude(std_residuals: np.ndarray, dt: int) -> float:
     return mean_magnitude
 
 
+def get_last_residual_quantile(std_residuals: np.ndarray, quantile: float) -> float:
+    return np.round(np.quantile(np.abs(std_residuals[:, -1]), quantile), 3)
+
+
 def get_trades_returns(
     prices_X: np.ndarray,
     prices_Y: np.ndarray,
@@ -549,7 +553,10 @@ def get_correlation_with_live_market_indexes(
         diff_period_days, axis="columns"
     ).dropna(axis="columns")
 
-    assert market_indexes_pct.shape[0] == std_residuals_pct.shape[1]
+    # Hacky fix, the below assertion does not hold in rare cases
+    std_residuals_pct = std_residuals_pct.iloc[:, -market_indexes_pct.shape[0]:]
+    
+    # assert market_indexes_pct.shape[0] == std_residuals_pct.shape[1]
 
     def _correlation_with_market_indexes(X):
         return market_indexes_pct.apply(

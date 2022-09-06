@@ -10,42 +10,6 @@ import sklearn
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 
-_INDUSTRY_MAPPINGS = {
-    "chemicals": "materials",
-    "construction_materials": "materials",
-    "containers_and_packaging": "materials",
-    "metals_and_mining": "materials",
-    "paper_and_forest_products": "materials",
-    #
-    "capital_goods": "industrials",
-    "commercial_and_professional_services": "industrials",
-    "transportation": "industrials",
-    #
-    "automobiles_and_components": "consumer_discretionary",
-    "consumer_durables_and_apparel": "consumer_discretionary",
-    "consumer_services": "consumer_discretionary",
-    "retailing": "consumer_discretionary",
-    #
-    "health_care_equipment_and_services": "health_care",
-    "pharmaceuticals_biotechnology_and_life_sciences": "health_care",
-    #
-    "banks": "financials",
-    "diversified_financials": "financials",
-    "insurance": "financials",
-    #
-    "software_and_services": "information_technology",
-    "technology_hardware_and_equipment": "information_technology",
-    "semiconductors_and_semiconductor_equipment": "information_technology",
-    #
-    "telecommunication_services": "communication_services",
-    "media_and_entertainment": "communication_services",
-    #
-    "energy": "energy",
-    "utilities": "utilities",
-    "real_estate": "real_estate",
-    "consumer_staples": "consumer_staples",
-}
-
 
 def split_data(
     df: pd.DataFrame,
@@ -151,7 +115,7 @@ def transform_features(
         "residual_mean_max": np.float32,
         "vix": np.float32,
         "betas_rsquared": np.float32,
-        "arima_forecast": np.float32,
+        "arima_forecast_normalized": np.float32,
     }
 
     df_copy = X.copy()
@@ -163,22 +127,13 @@ def transform_features(
             "adf_pass_rate",
             "last_residual",
             "residual_mean_max",
-            "subindustry",
+            "industry",
             "vix",
             "betas_rsquared",
-            "arima_forecast",
+            "arima_forecast_normalized",
         ]
     ].astype(data_types)
-
-    # Industry transform
-    df_copy.loc[:, "industry"] = df_copy.apply(_map_industry, axis=1)
-    df_copy = df_copy.drop(columns="subindustry")
     df_copy["industry"] = df_copy["industry"].astype("category")
-    #
-
-    # Arima forecast transform
-    df_copy.loc[:, "arima_forecast"] = df_copy.apply(_normalize_arima_forecast, axis=1)
-    #
 
     # Residual transform
     df_copy.loc[:, "last_residual"] = df_copy["last_residual"].abs()
@@ -223,22 +178,6 @@ def transform_features(
     ##
 
     return df_copy, scalers
-
-
-def _normalize_arima_forecast(df_row):
-    residual = df_row["last_residual"]
-    arima = df_row["arima_forecast"]
-
-    diff = np.absolute(residual - arima)
-
-    if (residual >= 0 and arima > residual) or (residual < 0 and arima < residual):
-        diff *= -1
-
-    return diff
-
-
-def _map_industry(df_row):
-    return _INDUSTRY_MAPPINGS[df_row["subindustry"]]
 
 
 def _get_new_scaler(scaling):
