@@ -15,6 +15,8 @@ import processing
 import preprocessing
 import utils
 import train
+import predict
+import evaluate
 
 from processing import DAYS_IN_TRADING_YEAR
 from processing import DAYS_IN_TRADING_MONTH
@@ -24,23 +26,25 @@ from processing import DAYS_IN_TRADING_WEEK
 def model_validation_pipeline(
     dataset: pd.DataFrame,
     filename_prefix: str,
-    data_window_train_size: int,
+    fixed_train_window_size: bool,
+    data_window_max_train_size: int,
     data_window_test_size: int,
     data_window_gap_size: int,
     hp_model_evals: int,
     top_n_best_trades: int = 5,
     min_industry_confidence: float = 0.4,
     random_noise: float = 0.005,
-    hp_nth_best_model: int = 10,
+    hp_nth_best_model: int = 1,
     data_dir: str = "data",
     outputs_dir: str = "experiments",
+    verbose: bool = False
 ) -> pd.DataFrame:
     random_state = np.random.randint(133742069)
     pipeline_dir = os.path.join(data_dir, outputs_dir)
 
     # Total data window size is the size of the standard data window for validation/training plus another gap and test size for final validation
     total_data_window_size = (
-        data_window_train_size + data_window_gap_size + data_window_test_size
+        data_window_max_train_size + data_window_gap_size + data_window_test_size
     ) + (data_window_gap_size + data_window_test_size)
 
     dates_sorted = np.sort(dataset["trade_date"].unique())
@@ -48,11 +52,12 @@ def model_validation_pipeline(
 
     assert total_date_count >= total_data_window_size
 
-    data_windows = range(total_date_count, total_data_window_size - 1, -1)
+    data_windows = range(total_date_count, total_data_window_size - 1, -2)
 
     print("Total data windows: " + str(len(list(data_windows))))
 
     all_evaluation_results = {}
+    all_df_test_scores = []
     for index_end in data_windows:
         index_start = index_end - total_data_window_size
 
@@ -83,47 +88,25 @@ def model_validation_pipeline(
         ) == len(current_data_window)
 
         dataset_window_validation = (
-            dataset[
-                dataset.trade_date.isin(current_data_window_validation)
-            ]
+            dataset[dataset.trade_date.isin(current_data_window_validation)]
             .copy()
             .sample(frac=1, random_state=random_state)
         )
 
-        validation_splits = preprocessing.split_data(
-            dataset_window_validation,
-            date_count_train=data_window_train_size,
-            date_count_valid=data_window_test_size,
-            date_count_gap=data_window_gap_size,
-            random_state=random_state,
-        )
-
-        test_splits = preprocessing.split_data(
-            dataset_window_test,
-            date_count_train=data_window_train_size,
-            date_count_valid=data_window_test_size,
-            date_count_gap=data_window_gap_size,
-            random_state=random_state,
-        )
-
-        assert all(
-            [
-                len(validation_splits["validation"].trade_date.unique())
-                == len(test_splits["validation"].trade_date.unique()),
-                len(validation_splits["train"].trade_date.unique())
-                == len(test_splits["train"].trade_date.unique()),
-            ]
-        )
-
         # Hyperparameter tuning/search, outputs an artifact CSV with results, which is not used
-        hp_trial_name = "validation_{}-{}_until_{}".format(
+        hp_trial_name = "{}_validation_{}_{}_{}-{}_until_{}".format(
+            filename_prefix,
+            hp_model_evals,
+            hp_nth_best_model,
             current_data_window_validation[0],
             current_data_window_validation[-1],
             current_data_window[-1],
         )
         df_trial_results = train.model_hp_search(
-            validation_splits,
+            dataset_window_validation,
             n_evals=hp_model_evals,
+            fixed_train_window_size=fixed_train_window_size,
+            max_train_window_size=data_window_max_train_size,
             trial_name=hp_trial_name,
             additive_random_noise=random_noise,
             write_csv=True,
@@ -147,6 +130,14 @@ def model_validation_pipeline(
             "random_state": random_state,
         }
         model_params.update(selected_hps)
+        
+        test_splits = preprocessing.split_data(
+            dataset_window_test,
+            date_count_train=selected_hps["train_window_size"],
+            date_count_valid=data_window_test_size,
+            date_count_gap=data_window_gap_size,
+            random_state=random_state,
+        )
 
         # Live/production model training with given hyperparameters, outputs model and scalers JSONs
         clf_test, scalers_test = train.train_production_xgb(
@@ -174,10 +165,13 @@ def model_validation_pipeline(
         df_test_scores = test_splits["validation"].copy()
         df_test_scores["score"] = predictions
         df_test_scores["prediction"] = predictions > 0.5
+        all_df_test_scores.append(df_test_scores)
 
         # Aggregate evaluation results, as a whole and by each trade date (as separate rows)
         current_period_trade_dates = np.sort(df_test_scores.trade_date.unique())
-        current_evaluation_period_row_prefix = "_".join([str(current_period_trade_dates[0]), str(current_period_trade_dates[-1])])
+        current_evaluation_period_row_prefix = "_".join(
+            [str(current_period_trade_dates[0]), str(current_period_trade_dates[-1])]
+        )
         current_evaluation_results = {}
 
         _, results = evaluate.returns_on_predictions(df_test_scores)
@@ -197,12 +191,12 @@ def model_validation_pipeline(
             min_industry_score=min_industry_confidence,
         )
         current_evaluation_results.update(results)
- 
+
         all_evaluation_results[
             current_evaluation_period_row_prefix + "_all"
         ] = pd.Series(current_evaluation_results)
 
-        # By trade date
+        # By trade date, automatically sorted from earliest by groupby
         for date, trades in df_test_scores.groupby("trade_date"):
             current_evaluation_results = {}
 
@@ -230,19 +224,35 @@ def model_validation_pipeline(
             ] = current_evaluation_results
 
     all_evaluation_results = pd.DataFrame(all_evaluation_results).T
-    results_filename = "{}_validation_pipeline_{}.csv".format(filename_prefix, "_".join([
-        str(data_window_train_size),
-        str(data_window_test_size),
-        str(data_window_gap_size),
-        str(hp_model_evals),
-        str(top_n_best_trades),
-        str(min_industry_confidence),
-        str(random_noise),
-        str(hp_nth_best_model),
-    ]))
-    
-    all_evaluation_results.to_csv(os.path.join(pipeline_dir, "validation", results_filename), index=True, header=True)
-    return all_evaluation_results
+    all_df_test_scores = pd.concat(all_df_test_scores)
+    results_filename = "{}_validation_pipeline_{}.csv".format(
+        filename_prefix,
+        "_".join(
+            [
+                str(data_window_max_train_size),
+                str(fixed_train_window_size),
+                str(data_window_test_size),
+                str(data_window_gap_size),
+                str(hp_model_evals),
+                str(top_n_best_trades),
+                str(min_industry_confidence),
+                str(random_noise),
+                str(hp_nth_best_model),
+            ]
+        ),
+    )
+
+    all_evaluation_results.to_csv(
+        os.path.join(pipeline_dir, "validation", results_filename),
+        index=True,
+        header=True,
+    )
+    all_df_test_scores.to_csv(
+        os.path.join(pipeline_dir, "validation", "trade_scores.csv"),
+        index=False,
+        header=True,
+    )
+    return all_evaluation_results, all_df_test_scores
 
 
 def data_collection_rolling_pipeline(
@@ -512,6 +522,7 @@ def _data_collection_step(
     output["beta"] = features["betas_last"][0].to_numpy().round(3)
     output["intercept"] = features["intercepts_last"][0].to_numpy().round(3)
     output["residual_mean_max"] = np.full(output_length, features["residuals_max_mean"])
+    output["residual_quantile"] = np.full(output_length, features["residuals_quantile"])
     output["betas_rsquared"] = (
         features["beta_stability_rsquared_vals"][0].to_numpy().round(3)
     )
@@ -609,9 +620,13 @@ def process_features_from_price_data(
     means = means.loc[adfs.index]
     stds = stds.loc[adfs.index]
 
-    ### Residuals mean-max calculations
+    ### Residuals mean-max and quantile calculations
     residuals_max_mean = processing.get_mean_residual_magnitude(
         std_residuals.to_numpy(), dt=mean_max_residual_dt
+    )
+    
+    last_residual_quantile = processing.get_last_residual_quantile(
+        std_residuals.to_numpy(), quantile=0.9
     )
     ###
 
@@ -660,6 +675,7 @@ def process_features_from_price_data(
         "stds": stds,
         "dates_index": dates_index,
         "residuals_max_mean": residuals_max_mean,
+        "residuals_quantile": last_residual_quantile,
         "beta_stability_rsquared_vals": beta_stability_rsquared_vals,
         "arima_forecasts": arima_forecasts,
         "market_correlations": market_correlations,

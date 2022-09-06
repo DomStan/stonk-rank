@@ -22,8 +22,10 @@ import evaluate
 
 
 def model_hp_search(
-    data_splits: Dict[str, pd.DataFrame],
+    dataset: pd.DataFrame,
     n_evals: int,
+    fixed_train_window_size: bool,
+    max_train_window_size: int,
     trial_name: str,
     additive_random_noise: float,
     write_csv: bool = True,
@@ -31,29 +33,68 @@ def model_hp_search(
     data_dir: str = "data",
     output_dir: str = "experiments",
 ) -> pd.DataFrame:
-    _X_train, scalers = preprocessing.transform_features(
-        data_splits["train"], noise_level=additive_random_noise
-    )
-
-    _X_valid, _ = preprocessing.transform_features(
-        data_splits["validation"], scalers=scalers, noise_level=0
-    )
-
-    _y_train = data_splits["train"]["label"]
-    _y_valid = data_splits["validation"]["label"]
 
     _hyperparameter_space = {
         "gamma": hp.uniform("gamma", 0, 5),
-        "scale_pos_weight": hp.uniform("scale_pos_weight", 3, 7),
-        "max_depth": hp.quniform("max_depth", 3, 9, 1),
+        "scale_pos_weight": hp.uniform("scale_pos_weight", 2, 9),
+        "max_depth": hp.quniform("max_depth", 3, 8, 1),
         "min_child_weight": hp.quniform("min_child_weight", 1, 8, 1),
         "max_delta_step": hp.quniform("max_delta_step", 1, 4, 1),
         "n_estimators": hp.quniform("n_estimators", 25, 85, 1),
         # "subsample": hp.uniform("subsample", 0.9, 1),
         # "colsample_bylevel" : hp.uniform("colsample_bylevel", 0.5, 1),
     }
+    if not fixed_train_window_size:
+        _hyperparameter_space["train_window_size"] = hp.quniform("train_window_size", 32, max_train_window_size, 8)
+    
+    global data_splits
+    global X_train
+    global X_valid
+    global y_train
+    global y_valid
+    
+    if fixed_train_window_size:
+        data_splits = preprocessing.split_data(
+            dataset,
+            date_count_train=max_train_window_size,
+            date_count_valid=2,
+            date_count_gap=6,
+            random_state=random_state,
+        )
+
+        X_train, scalers = preprocessing.transform_features(
+            data_splits["train"], noise_level=additive_random_noise
+        )
+
+        X_valid, _ = preprocessing.transform_features(
+            data_splits["validation"], scalers=scalers, noise_level=0
+        )
+
+        y_train = data_splits["train"]["label"]
+        y_valid = data_splits["validation"]["label"]
+        
 
     def _optimization_objective(space):
+        if not fixed_train_window_size:
+            data_splits = preprocessing.split_data(
+                dataset,
+                date_count_train=min(int(space["train_window_size"]), max_train_window_size),
+                date_count_valid=2,
+                date_count_gap=6,
+                random_state=random_state,
+            )
+
+            X_train, scalers = preprocessing.transform_features(
+                data_splits["train"], noise_level=additive_random_noise
+            )
+
+            X_valid, _ = preprocessing.transform_features(
+                data_splits["validation"], scalers=scalers, noise_level=0
+            )
+
+            y_train = data_splits["train"]["label"]
+            y_valid = data_splits["validation"]["label"]
+            
         clf = xgb.XGBClassifier(
             # Uniform floating point
             gamma=space["gamma"],
@@ -73,24 +114,25 @@ def model_hp_search(
             enable_categorical=True,
             max_cat_to_onehot=1,
             random_state=random_state,
+            verbosity=0
         )
 
         clf.fit(
-            _X_train,
-            _y_train,
+            X_train,
+            y_train,
             verbose=False,
         )
 
-        y_score = clf.predict_proba(_X_valid)[:, 1]
+        y_score = clf.predict_proba(X_valid)[:, 1]
         y_preds = y_score > 0.5
 
-        f1 = f1_score(_y_valid, y_preds, zero_division=0)
-        precision = precision_score(_y_valid, y_preds, zero_division=0)
-        ap = evaluate.average_precision_from_cutoff(_y_valid, y_score, 0.5)
-        roc = roc_auc_score(_y_valid, y_score)
+        f1 = f1_score(y_valid, y_preds, zero_division=0)
+        precision = precision_score(y_valid, y_preds, zero_division=0)
+        ap = evaluate.average_precision_from_cutoff(y_valid, y_score, 0.5)
+        roc = roc_auc_score(y_valid, y_score)
 
         pos_preds = int(y_preds.sum())
-        pos_labels = int(_y_valid.sum())
+        pos_labels = int(y_valid.sum())
 
         ap = ap if pos_preds >= pos_labels else 0
 
@@ -153,7 +195,7 @@ def train_production_xgb(
     )
     y_train = dataset["label"]
 
-    clf = xgb.XGBClassifier(**params)
+    clf = xgb.XGBClassifier(**params, verbosity=0)
 
     clf.fit(X_train, y_train, eval_set=[(X_train, y_train)], verbose=verbose)
     clf.save_model(os.path.join(data_dir, "xgb_classifier.json"))
