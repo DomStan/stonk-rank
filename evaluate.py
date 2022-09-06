@@ -42,14 +42,14 @@ def returns_on_predictions(df, verbose=False):
 
     if verbose:
         print(mean_returns)
-    evaluation_metrics["fp_ret_1mo"] = np.round(
-        mean_returns.loc["FP"]["return_one_month"], 3
+    evaluation_metrics["_fp_ret_1mo"] = np.round(
+        mean_returns["return_one_month"].get("FP", 0), 3
     )
-    evaluation_metrics["fp_ret_2mo"] = np.round(
-        mean_returns.loc["FP"]["return_two_month"], 3
+    evaluation_metrics["_fp_ret_2mo"] = np.round(
+        mean_returns["return_two_month"].get("FP", 0), 3
     )
-    evaluation_metrics["fp_ret_3mo"] = np.round(
-        mean_returns.loc["FP"]["return_three_month"], 3
+    evaluation_metrics["_fp_ret_3mo"] = np.round(
+        mean_returns["return_three_month"].get("FP", 0), 3
     )
 
     if verbose:
@@ -68,14 +68,14 @@ def returns_on_predictions(df, verbose=False):
     )
     if verbose:
         print(mean_returns_stds)
-    evaluation_metrics["fp_ret_std_1mo"] = np.round(
-        mean_returns_stds.loc["FP"]["return_one_month"], 3
+    evaluation_metrics["_fp_ret_std_1mo"] = np.round(
+        mean_returns_stds["return_one_month"].get("FP", 0), 3
     )
-    evaluation_metrics["fp_ret_std_2mo"] = np.round(
-        mean_returns_stds.loc["FP"]["return_two_month"], 3
+    evaluation_metrics["_fp_ret_std_2mo"] = np.round(
+        mean_returns_stds["return_two_month"].get("FP", 0), 3
     )
-    evaluation_metrics["fp_ret_std_3mo"] = np.round(
-        mean_returns_stds.loc["FP"]["return_three_month"], 3
+    evaluation_metrics["_fp_ret_std_3mo"] = np.round(
+        mean_returns_stds["return_three_month"].get("FP", 0), 3
     )
 
     if verbose:
@@ -86,13 +86,13 @@ def returns_on_predictions(df, verbose=False):
     ].mean()
     if verbose:
         print(positive_preds_means)
-    evaluation_metrics["pos_pred_ret_1mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_1mo"] = np.round(
         positive_preds_means["return_one_month"], 3
     )
-    evaluation_metrics["pos_pred_ret_2mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_2mo"] = np.round(
         positive_preds_means["return_two_month"], 3
     )
-    evaluation_metrics["pos_pred_ret_3mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_3mo"] = np.round(
         positive_preds_means["return_three_month"], 3
     )
 
@@ -103,13 +103,13 @@ def returns_on_predictions(df, verbose=False):
     ].std()
     if verbose:
         print(positive_preds_stds)
-    evaluation_metrics["pos_pred_ret_std_1mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_std_1mo"] = np.round(
         positive_preds_stds["return_one_month"], 3
     )
-    evaluation_metrics["pos_pred_ret_std_2mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_std_2mo"] = np.round(
         positive_preds_stds["return_two_month"], 3
     )
-    evaluation_metrics["pos_pred_ret_std_3mo"] = np.round(
+    evaluation_metrics["_pos_pred_ret_std_3mo"] = np.round(
         positive_preds_stds["return_three_month"], 3
     )
 
@@ -117,7 +117,11 @@ def returns_on_predictions(df, verbose=False):
 
 
 def performance_summary(
-    y_score: np.array, y_preds: np.array, y_true: np.array, auc_cutoff: float, verbose=False
+    y_score: np.array,
+    y_preds: np.array,
+    y_true: np.array,
+    auc_cutoff: float,
+    verbose=False,
 ) -> pd.Series:
     evaluation_metrics = {}
     precision = precision_score(y_true, y_preds, zero_division=0)
@@ -134,11 +138,11 @@ def performance_summary(
         print("Total positive predictions:", y_preds.sum())
         print("Total positive labels:", y_true.sum())
 
-    evaluation_metrics["precision"] = np.round(precision, 3)
-    evaluation_metrics["ap"] = np.round(avg_precision, 3)
-    evaluation_metrics["roc"] = np.round(roc, 3)
-    evaluation_metrics["positive_preds"] = int(y_preds.sum())
-    evaluation_metrics["positive_labels"] = int(y_true.sum())
+    evaluation_metrics["_precision"] = np.round(precision, 3)
+    evaluation_metrics["_ap"] = np.round(avg_precision, 3)
+    evaluation_metrics["_roc"] = np.round(roc, 3)
+    evaluation_metrics["_positive_preds"] = int(y_preds.sum())
+    evaluation_metrics["_positive_labels"] = int(y_true.sum())
 
     return pd.Series(evaluation_metrics)
 
@@ -170,6 +174,8 @@ def performance_on_trading_use_case(
 
     for name, group in df[
         [
+            "ticker_x",
+            "ticker_y",
             "subindustry",
             "score",
             "label",
@@ -183,6 +189,8 @@ def performance_on_trading_use_case(
             selected_group = (
                 group[group.score >= min_industry_score]
                 .sort_values(by="score", ascending=False)
+                .drop_duplicates(subset="ticker_x", keep="first")
+                .drop_duplicates(subset="ticker_y", keep="first")
                 .iloc[:top_n_trades]
             )
             short_name = name[:5] + name[-5:]
