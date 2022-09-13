@@ -431,7 +431,8 @@ def select_nth_best_trial(df_trials: pd.DataFrame, nth_best: int) -> Dict[str, f
     selected_trial["max_delta_step"] = int(selected_trial["max_delta_step"])
     selected_trial["max_depth"] = int(selected_trial["max_depth"])
     selected_trial["min_child_weight"] = int(selected_trial["min_child_weight"])
-    selected_trial["train_window_size"] = int(selected_trial["train_window_size"])
+    if "train_window_size" in selected_trial:
+        selected_trial["train_window_size"] = int(selected_trial["train_window_size"])
     return selected_trial
 
 def map_subindustries_to_industries(df_row):
