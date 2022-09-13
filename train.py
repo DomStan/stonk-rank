@@ -28,6 +28,8 @@ def model_hp_search(
     max_train_window_size: int,
     trial_name: str,
     additive_random_noise: float,
+    train_window_min_size: int = 32,
+    train_window_stride: int = 8,
     write_csv: bool = True,
     random_state: int = 1,
     data_dir: str = "data",
@@ -45,16 +47,10 @@ def model_hp_search(
         # "colsample_bylevel" : hp.uniform("colsample_bylevel", 0.5, 1),
     }
     if not fixed_train_window_size:
-        _hyperparameter_space["train_window_size"] = hp.quniform("train_window_size", 32, max_train_window_size, 8)
-    
-    global data_splits
-    global X_train
-    global X_valid
-    global y_train
-    global y_valid
+        _hyperparameter_space["train_window_size"] = hp.quniform("train_window_size", train_window_min_size, max_train_window_size, train_window_stride)
     
     if fixed_train_window_size:
-        data_splits = preprocessing.split_data(
+        _data_splits = preprocessing.split_data(
             dataset,
             date_count_train=max_train_window_size,
             date_count_valid=2,
@@ -62,16 +58,16 @@ def model_hp_search(
             random_state=random_state,
         )
 
-        X_train, scalers = preprocessing.transform_features(
-            data_splits["train"], noise_level=additive_random_noise
+        _X_train, _scalers = preprocessing.transform_features(
+            _data_splits["train"], noise_level=additive_random_noise
         )
 
-        X_valid, _ = preprocessing.transform_features(
-            data_splits["validation"], scalers=scalers, noise_level=0
+        _X_valid, _ = preprocessing.transform_features(
+            _data_splits["validation"], scalers=_scalers, noise_level=0
         )
 
-        y_train = data_splits["train"]["label"]
-        y_valid = data_splits["validation"]["label"]
+        _y_train = _data_splits["train"]["label"]
+        _y_valid = _data_splits["validation"]["label"]
         
 
     def _optimization_objective(space):
@@ -94,6 +90,12 @@ def model_hp_search(
 
             y_train = data_splits["train"]["label"]
             y_valid = data_splits["validation"]["label"]
+        else:
+            data_splits = _data_splits
+            X_train = _X_train
+            X_valid = _X_valid
+            y_train = _y_train
+            y_valid = _y_valid
             
         clf = xgb.XGBClassifier(
             # Uniform floating point

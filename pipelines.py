@@ -133,7 +133,7 @@ def model_validation_pipeline(
         
         test_splits = preprocessing.split_data(
             dataset_window_test,
-            date_count_train=selected_hps["train_window_size"],
+            date_count_train=selected_hps.get("train_window_size", data_window_max_train_size),
             date_count_valid=data_window_test_size,
             date_count_gap=data_window_gap_size,
             random_state=random_state,
