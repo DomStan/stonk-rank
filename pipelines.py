@@ -37,7 +37,7 @@ def model_validation_pipeline(
     hp_nth_best_model: int = 1,
     data_dir: str = "data",
     outputs_dir: str = "experiments",
-    verbose: bool = False
+    verbose: bool = False,
 ) -> pd.DataFrame:
     random_state = np.random.randint(133742069)
     pipeline_dir = os.path.join(data_dir, outputs_dir)
@@ -130,10 +130,12 @@ def model_validation_pipeline(
             "random_state": random_state,
         }
         model_params.update(selected_hps)
-        
+
         test_splits = preprocessing.split_data(
             dataset_window_test,
-            date_count_train=selected_hps.get("train_window_size", data_window_max_train_size),
+            date_count_train=selected_hps.get(
+                "train_window_size", data_window_max_train_size
+            ),
             date_count_valid=data_window_test_size,
             date_count_gap=data_window_gap_size,
             random_state=random_state,
@@ -272,6 +274,7 @@ def data_collection_rolling_pipeline(
     trading_interval_weeks: int,
     remove_industries: Optional[Iterable[str]] = None,
     first_n_windows: Optional[int] = None,
+    output_std_residuals: bool = True,
     data_dir: Optional[str] = "data",
     verbose: Optional[bool] = False,
 ) -> None:
@@ -331,6 +334,7 @@ def data_collection_rolling_pipeline(
             )
 
         collected_data_all_industries = []
+        collected_data_residuals_all_industries = []
         for industry in industries:
             tickers_by_industry = tickers[tickers["subindustry"] == industry]
             if len(tickers_by_industry) <= 1:
@@ -340,23 +344,22 @@ def data_collection_rolling_pipeline(
             ]
             X, Y = processing.combine_stonk_pairs(price_data_window_by_industry)
 
-            collected_data = pd.DataFrame(
-                _data_collection_step(
-                    X=X,
-                    Y=Y,
-                    market_indexes=market_indexes,
-                    l_reg=l_reg,
-                    l_roll=l_roll,
-                    dt=dt,
-                    last_residual_cutoff=last_residual_cutoff,
-                    mean_max_residual_dt=mean_max_residual_dt,
-                    adf_pval_cutoff=adf_pval_cutoff,
-                    adf_pass_rate_filter=adf_pass_rate_filter,
-                    arima_forecast_months=arima_forecast_months,
-                    arima_eval_models=arima_eval_models,
-                    trade_length_months=trade_length_months,
-                )
+            collected_data, features = _data_collection_step(
+                X=X,
+                Y=Y,
+                market_indexes=market_indexes,
+                l_reg=l_reg,
+                l_roll=l_roll,
+                dt=dt,
+                last_residual_cutoff=last_residual_cutoff,
+                mean_max_residual_dt=mean_max_residual_dt,
+                adf_pval_cutoff=adf_pval_cutoff,
+                adf_pass_rate_filter=adf_pass_rate_filter,
+                arima_forecast_months=arima_forecast_months,
+                arima_eval_models=arima_eval_models,
+                trade_length_months=trade_length_months,
             )
+            collected_data = pd.DataFrame(collected_data)
 
             if len(collected_data) == 0:
                 continue
@@ -365,8 +368,11 @@ def data_collection_rolling_pipeline(
                 collected_data.shape[0], X.columns[0]
             )
             collected_data["subindustry"] = np.full(collected_data.shape[0], industry)
-
             collected_data_all_industries.append(collected_data)
+
+            collected_data_residuals = features["std_residuals"].reset_index()
+            collected_data_residuals["trade_date"] = collected_data["trade_date"]
+            collected_data_residuals_all_industries.append(collected_data_residuals)
 
             if verbose:
                 print(
@@ -378,6 +384,10 @@ def data_collection_rolling_pipeline(
 
         collected_data_all_industries = pd.concat(
             collected_data_all_industries, ignore_index=True
+        )
+
+        collected_data_residuals_all_industries = pd.concat(
+            collected_data_residuals_all_industries, ignore_index=True
         )
 
         filename = (
@@ -409,6 +419,14 @@ def data_collection_rolling_pipeline(
             data_output_file_path, header=True, index=False
         )
 
+        if output_std_residuals:
+            residuals_output_file_path = os.path.join(
+                data_output_dir, "residuals", filename
+            )
+            collected_data_residuals_all_industries.to_csv(
+                residuals_output_file_path, header=True, index=False
+            )
+
         total_data_windows -= 1
 
         if verbose:
@@ -433,7 +451,7 @@ def _data_collection_step(
     arima_forecast_months: int,
     arima_eval_models: int,
     trade_length_months: int,
-) -> Dict[str, ArrayLike]:
+) -> Tuple[Dict[str, ArrayLike], Dict[str, ArrayLike]]:
     assert X.shape == Y.shape
 
     output = {}
@@ -486,7 +504,7 @@ def _data_collection_step(
     )
 
     if len(features) == 0:
-        return output
+        return output, {}
 
     ### Trade returns calculations
     # True for trades where we buy X and short Y
@@ -518,6 +536,7 @@ def _data_collection_step(
     output["trade_date"] = np.full(output_length, X_from_T.columns[0])
 
     output["adf_pass_rate"] = features["adfs"][0].values.round(3)
+    output["adf_pass_rate_recent"] = features["adfs_recent"][0].values.round(3)
     output["last_residual"] = features["std_residuals"].iloc[:, -1].to_numpy().round(3)
     output["beta"] = features["betas_last"][0].to_numpy().round(3)
     output["intercept"] = features["intercepts_last"][0].to_numpy().round(3)
@@ -549,8 +568,7 @@ def _data_collection_step(
         output["return_three_month"] = np.full(output_length, np.nan)
         output["residual_three_month"] = np.full(output_length, np.nan)
 
-    del features
-    return output
+    return output, features
 
 
 def process_features_from_price_data(
@@ -620,11 +638,17 @@ def process_features_from_price_data(
     means = means.loc[adfs.index]
     stds = stds.loc[adfs.index]
 
+    ### Pass rate of the most recent subset of ADF tests
+    adfs_recent = processing.get_adf_recent_pass_rate(
+        adfs_raw=adfs_raw, dt=dt, data_window_months=3, pval_cutoff=adf_pval_cutoff
+    )
+    ###
+
     ### Residuals mean-max and quantile calculations
     residuals_max_mean = processing.get_mean_residual_magnitude(
         std_residuals.to_numpy(), dt=mean_max_residual_dt
     )
-    
+
     last_residual_quantile = processing.get_last_residual_quantile(
         std_residuals.to_numpy(), quantile=0.9
     )
@@ -671,6 +695,7 @@ def process_features_from_price_data(
         "intercepts_last": intercepts_last,
         "adfs": adfs,
         "adfs_raw": adfs_raw,
+        "adfs_recent": adfs_recent,
         "means": means,
         "stds": stds,
         "dates_index": dates_index,

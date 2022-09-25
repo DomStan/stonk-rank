@@ -47,8 +47,13 @@ def model_hp_search(
         # "colsample_bylevel" : hp.uniform("colsample_bylevel", 0.5, 1),
     }
     if not fixed_train_window_size:
-        _hyperparameter_space["train_window_size"] = hp.quniform("train_window_size", train_window_min_size, max_train_window_size, train_window_stride)
-    
+        _hyperparameter_space["train_window_size"] = hp.quniform(
+            "train_window_size",
+            train_window_min_size,
+            max_train_window_size,
+            train_window_stride,
+        )
+
     if fixed_train_window_size:
         _data_splits = preprocessing.split_data(
             dataset,
@@ -68,13 +73,14 @@ def model_hp_search(
 
         _y_train = _data_splits["train"]["label"]
         _y_valid = _data_splits["validation"]["label"]
-        
 
     def _optimization_objective(space):
         if not fixed_train_window_size:
             data_splits = preprocessing.split_data(
                 dataset,
-                date_count_train=min(int(space["train_window_size"]), max_train_window_size),
+                date_count_train=min(
+                    int(space["train_window_size"]), max_train_window_size
+                ),
                 date_count_valid=2,
                 date_count_gap=6,
                 random_state=random_state,
@@ -96,7 +102,7 @@ def model_hp_search(
             X_valid = _X_valid
             y_train = _y_train
             y_valid = _y_valid
-            
+
         clf = xgb.XGBClassifier(
             # Uniform floating point
             gamma=space["gamma"],
@@ -116,7 +122,7 @@ def model_hp_search(
             enable_categorical=True,
             max_cat_to_onehot=1,
             random_state=random_state,
-            verbosity=0
+            verbosity=0,
         )
 
         clf.fit(
