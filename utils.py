@@ -287,12 +287,20 @@ def preprocess_stock_list(
         "Most Recent Trade Price ($USD, Historical rate)",
         "Equity Security Type",
         "Exchange Country/Region",
+        # "Country/Region of Incorporation",
         "Exchanges",
     ]
     df.drop(columns=drop_columns, inplace=True)
 
     # Rename remaining columns
-    df.columns = ["ticker", "subindustry", "market_cap"]
+    df.columns = [
+        "ticker",
+        "subindustry",
+        "market_cap",
+        # "market_cap2",
+        # "market_cap3",
+        # "market_cap4"
+    ]
 
     # Remove the '(Primary)' tag from subindustries
     df["subindustry"] = df["subindustry"].str.replace(r" \(Primary\)", "")
@@ -390,7 +398,9 @@ def build_dataset_from_live_data_by_industry(
     # All columns must have equal length
     assert len(set([len(x) for x in dataset.values()])) == 1
     dataset = pd.DataFrame(dataset)
-    dataset.loc[:, "arima_forecast_normalized"] = dataset.apply(normalize_arima_forecast, axis=1)
+    dataset.loc[:, "arima_forecast_normalized"] = dataset.apply(
+        normalize_arima_forecast, axis=1
+    )
     return dataset
 
 
@@ -434,6 +444,7 @@ def select_nth_best_trial(df_trials: pd.DataFrame, nth_best: int) -> Dict[str, f
     if "train_window_size" in selected_trial:
         selected_trial["train_window_size"] = int(selected_trial["train_window_size"])
     return selected_trial
+
 
 def map_subindustries_to_industries(df_row):
     return _SUBINDUSTRY_MAPPINGS[df_row["subindustry"]]
