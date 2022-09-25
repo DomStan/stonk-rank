@@ -111,6 +111,7 @@ def transform_features(
 
     data_types = {
         "adf_pass_rate": np.float32,
+        # "adf_pass_rate_recent": np.float32,
         "last_residual": np.float32,
         "residual_mean_max": np.float32,
         # "residual_quantile": np.float32,
@@ -126,6 +127,7 @@ def transform_features(
     df_copy = df_copy[
         [
             "adf_pass_rate",
+            # "adf_pass_rate_recent",
             "last_residual",
             "residual_mean_max",
             # "residual_quantile",
@@ -144,13 +146,13 @@ def transform_features(
     # Feature cross
     df_copy.loc[:, "residual_inter"] = (
         # df_copy["last_residual"] / df_copy["residual_quantile"]
-        df_copy["last_residual"] / df_copy["residual_mean_max"]
+        df_copy["last_residual"]
+        / df_copy["residual_mean_max"]
     )
     #
 
     # Additive random noise
     if noise_level > 0:
-        df_copy.loc[:, "adf_pass_rate"] += np.random.normal(0, noise_level, n_x)
         df_copy.loc[:, "last_residual"] += np.random.normal(0, noise_level, n_x)
         df_copy.loc[:, "residual_mean_max"] += np.random.normal(0, noise_level, n_x)
         # df_copy.loc[:, "residual_quantile"] += np.random.normal(0, noise_level, n_x)
@@ -180,7 +182,6 @@ def transform_features(
     scaler = scalers["vix"]
     df_copy.loc[:, "vix"] = scaler.transform(df_copy["vix"].to_numpy().reshape(-1, 1))
     ##
-    
 
     return df_copy, scalers
 

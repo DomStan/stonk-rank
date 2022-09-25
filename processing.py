@@ -220,13 +220,16 @@ def get_aggregate_adfs(
     residuals: pd.DataFrame,
     betas: pd.DataFrame = None,
     cutoff: float = 0.1,
-    adf_regression: str = "c",
+    adf_regression: str = "ct",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     def _get_adfs(residuals: np.ndarray, adf_regression: str) -> np.ndarray:
         # Get ADF test p-values for each row of the residuals array. No autolag (maxlag always used)
         assert residuals.dtype == np.float32
+        maxlag = int((residuals.shape[1] - 1) ** (1 / 3))
         return np.apply_along_axis(
-            lambda x: adfuller(x, regression=adf_regression, autolag=None)[1],
+            lambda x: adfuller(
+                x, regression=adf_regression, autolag=None, maxlag=maxlag
+            )[1],
             axis=1,
             arr=residuals,
         )
@@ -268,6 +271,28 @@ def get_aggregate_adfs(
     adfs = pd.DataFrame(adfs, index=unique_pairs)
 
     return adfs, adfs_raw
+
+
+def get_adf_recent_pass_rate(
+    adfs_raw: pd.DataFrame, dt: int, data_window_months: int, pval_cutoff=0.1
+):
+    days_in_data_window = (data_window_months * DAYS_IN_TRADING_MONTH) // dt
+    new_index = adfs_raw.index.unique()
+    result = np.zeros(
+        (
+            len(
+                new_index,
+            )
+        ),
+        dtype=np.float32,
+    )
+    idx = 0
+    for _, group in adfs_raw.reset_index().groupby("index", sort=False):
+        passrate = (group[0].iloc[-days_in_data_window:] <= pval_cutoff).mean()
+        result[idx] = passrate
+        idx += 1
+
+    return pd.DataFrame(result, index=new_index)
 
 
 def get_last_pairs(pairs: pd.DataFrame) -> pd.DataFrame:
@@ -554,8 +579,8 @@ def get_correlation_with_live_market_indexes(
     ).dropna(axis="columns")
 
     # Hacky fix, the below assertion does not hold in rare cases
-    std_residuals_pct = std_residuals_pct.iloc[:, -market_indexes_pct.shape[0]:]
-    
+    std_residuals_pct = std_residuals_pct.iloc[:, -market_indexes_pct.shape[0] :]
+
     # assert market_indexes_pct.shape[0] == std_residuals_pct.shape[1]
 
     def _correlation_with_market_indexes(X):
