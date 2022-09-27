@@ -38,7 +38,7 @@ def model_hp_search(
 
     _hyperparameter_space = {
         "gamma": hp.uniform("gamma", 0, 5),
-        "scale_pos_weight": hp.uniform("scale_pos_weight", 2, 9),
+        "scale_pos_weight": hp.uniform("scale_pos_weight", 1, 15),
         "max_depth": hp.quniform("max_depth", 3, 8, 1),
         "min_child_weight": hp.quniform("min_child_weight", 1, 8, 1),
         "max_delta_step": hp.quniform("max_delta_step", 1, 4, 1),
