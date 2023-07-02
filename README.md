@@ -1,2 +1,2 @@
 # Description
-Code for a long-short pairs trading strategy with XGBoost-powered trade ranking support in the decision making process.
+Code for a stock pairs trading strategy with XGBoost-powered trade ranking to enhance the human decision making process.
